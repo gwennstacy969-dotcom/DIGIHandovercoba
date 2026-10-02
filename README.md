@@ -276,7 +276,6 @@ Dokumentasi arsitektur dan spesifikasi API mendalam tersedia di folder `docs/`:
 | :--- | :--- | :--- | :--- |
 | **Admin** | `yoan` | `672023` | Administrator Akses penuh seluruh sistem, armada, & master data |
 | **Admin** | `haulafatiha` | `240206` | Administrator Akses penuh seluruh sistem, armada, & master data |
-| **Pengawas** | `pengawas` | `pengawas123` | Akses evaluasi perbaikan, laporan, pesan |
 | **Pengawas** | `sekar` | `12345` | Pengawas operasional lapangan |
 | **AMT** | Sesuai NIP Pekerja *(contoh: `617.05.0001`)* | `617.05.0001` | Terdaftar 334 AMT aktif di database |
 
