@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { API_URL, saveApiUrl, resetApiUrl, loadSavedApiUrl } from '../../config';
+import { API_URL, loadSavedApiUrl } from '../../config';
 import { View, Text, TextInput, TouchableOpacity, Animated, KeyboardAvoidingView, Platform, ScrollView, Image, ImageBackground, Modal, Linking, Dimensions, BackHandler, ActivityIndicator, Keyboard } from 'react-native';
 import tw from 'twrnc';
 import axios from 'axios';
@@ -25,86 +25,12 @@ export default function LoginScreen({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmittingReset, setIsSubmittingReset] = useState(false);
 
-  // Konfigurasi Server Dinamis
-  const [currentApiUrl, setCurrentApiUrl] = useState(API_URL);
-  const [showServerModal, setShowServerModal] = useState(false);
-  const [serverInput, setServerInput] = useState(API_URL);
-  const [testingServer, setTestingServer] = useState(false);
-  const [testResult, setTestResult] = useState(null);
-
-  // Rahasia Developer Mode: Ketuk logo 5x dalam 2 detik untuk membuka pengaturan server
-  const logoTapCountRef = useRef(0);
-  const lastLogoTapTimeRef = useRef(0);
-
-  const handleLogoPress = () => {
-    const now = Date.now();
-    if (now - lastLogoTapTimeRef.current > 2000) {
-      logoTapCountRef.current = 1;
-    } else {
-      logoTapCountRef.current += 1;
-    }
-    lastLogoTapTimeRef.current = now;
-
-    if (logoTapCountRef.current >= 5) {
-      logoTapCountRef.current = 0;
-      setServerInput(currentApiUrl);
-      setTestResult(null);
-      setShowServerModal(true);
-    }
-  };
-
+  // Load API URL dari environment saat startup
   useEffect(() => {
-    loadSavedApiUrl().then((url) => {
-      setCurrentApiUrl(url);
-      setServerInput(url);
-    });
+    loadSavedApiUrl();
   }, []);
 
-  const handleTestServer = async () => {
-    const raw = (serverInput || '').trim().replace(/\/+$/, '');
-    if (!raw) return;
-    const target = raw.startsWith('http') ? raw : `http://${raw}`;
-    setTestingServer(true);
-    setTestResult(null);
-    try {
-      const res = await axios.get(`${target}/health`, {
-        timeout: 5000,
-        headers: target.includes('loca.lt') ? { 'bypass-tunnel-reminder': 'true' } : {}
-      });
-      if (res.status === 200) {
-        setTestResult({ success: true, message: 'Berhasil terhubung ke Backend!' });
-      } else {
-        setTestResult({ success: false, message: `Server merespons status: ${res.status}` });
-      }
-    } catch (e) {
-      setTestResult({ success: false, message: 'Gagal terhubung. Pastikan backend aktif dan URL benar.' });
-    } finally {
-      setTestingServer(false);
-    }
-  };
 
-  const handleSaveServer = async () => {
-    try {
-      const updated = await saveApiUrl(serverInput);
-      setCurrentApiUrl(updated);
-      setShowServerModal(false);
-      showNotification('Server Tersimpan', `Menggunakan server: ${updated}`, 'success');
-    } catch (e) {
-      showNotification('Gagal', 'Gagal menyimpan konfigurasi server.', 'error');
-    }
-  };
-
-  const handleResetServer = async () => {
-    try {
-      const def = await resetApiUrl();
-      setCurrentApiUrl(def);
-      setServerInput(def);
-      setShowServerModal(false);
-      showNotification('Reset Default', `Kembali ke default: ${def}`, 'info');
-    } catch (e) {
-      showNotification('Gagal', 'Gagal reset konfigurasi server.', 'error');
-    }
-  };
 
   // Tangani tombol back hardware Android saat di halaman Login agar keluar dari aplikasi (tidak balik ke dashboard)
   useFocusEffect(
@@ -156,7 +82,7 @@ export default function LoginScreen({ navigation }) {
 
     setLoading(true);
     try {
-      const res = await axios.post(`${currentApiUrl}/api/auth/login`, { username, password });
+      const res = await axios.post(`${API_URL}/api/auth/login`, { username, password });
       const loggedInUser = res.data.user;
       const token = res.data.token;
       const refreshToken = res.data.refreshToken;
@@ -211,7 +137,7 @@ export default function LoginScreen({ navigation }) {
 
     // Kirim API di background
     try {
-      await axios.post(`${currentApiUrl}/api/password-reset/request`, {
+      await axios.post(`${API_URL}/api/password-reset/request`, {
         email: username,
         reason: 'Lupa password dari aplikasi'
       });
@@ -296,90 +222,7 @@ export default function LoginScreen({ navigation }) {
           isSubmitting={isSubmittingReset}
         />
 
-        {/* Modal Kustom Pengaturan Server Dinamis */}
-        <Modal
-          animationType="fade"
-          transparent={true}
-          visible={showServerModal}
-          onRequestClose={() => setShowServerModal(false)}
-        >
-          <View style={tw`flex-1 justify-center items-center bg-black/60 px-4`}>
-            <View style={tw`bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl`}>
-              <View style={tw`flex-row items-center mb-4`}>
-                <View style={tw`bg-blue-50 p-3 rounded-2xl mr-3`}>
-                  <Ionicons name="server-outline" size={26} color="#0055A5" />
-                </View>
-                <View style={tw`flex-1`}>
-                  <Text style={tw`text-xl font-black text-gray-800`}>Pengaturan Server</Text>
-                  <Text style={tw`text-xs text-gray-400 font-semibold`}>Ganti IP Backend tanpa build APK</Text>
-                </View>
-              </View>
 
-              <Text style={tw`text-gray-600 font-bold text-xs mb-1.5 ml-1`}>Alamat URL Server / IP Backend:</Text>
-              <View style={tw`bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2 mb-3`}>
-                <TextInput
-                  style={tw`text-gray-800 font-bold text-sm py-2`}
-                  placeholder="http://192.168.1.58:3000 atau https://xxx.loca.lt"
-                  value={serverInput}
-                  onChangeText={(text) => { setServerInput(text); setTestResult(null); }}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholderTextColor="#9CA3AF"
-                />
-              </View>
-
-              {/* Status Hasil Tes Koneksi */}
-              {testResult && (
-                <View style={tw`${testResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} border p-3 rounded-xl mb-3 flex-row items-center`}>
-                  <Ionicons name={testResult.success ? "checkmark-circle" : "alert-circle"} size={18} color={testResult.success ? "#10B981" : "#EF4444"} style={tw`mr-2`} />
-                  <Text style={tw`${testResult.success ? 'text-green-700' : 'text-red-700'} text-xs font-bold flex-1`}>
-                    {testResult.message}
-                  </Text>
-                </View>
-              )}
-
-              {/* Tombol Tes Koneksi */}
-              <TouchableOpacity
-                style={tw`bg-blue-50 py-3 rounded-xl items-center mb-4 flex-row justify-center border border-blue-100`}
-                onPress={handleTestServer}
-                disabled={testingServer || !serverInput.trim()}
-              >
-                {testingServer ? (
-                  <ActivityIndicator size="small" color="#0055A5" />
-                ) : (
-                  <>
-                    <Ionicons name="pulse" size={16} color="#0055A5" style={tw`mr-2`} />
-                    <Text style={tw`text-[#0055A5] font-bold text-xs`}>Tes Koneksi Server</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              {/* Action Buttons: Simpan & Batal */}
-              <View style={tw`flex-row justify-between gap-2 mb-2`}>
-                <TouchableOpacity
-                  style={tw`flex-1 bg-slate-100 py-3.5 rounded-xl items-center`}
-                  onPress={() => setShowServerModal(false)}
-                >
-                  <Text style={tw`text-gray-600 font-bold text-sm`}>Batal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={tw`flex-1 bg-[#0055A5] py-3.5 rounded-xl items-center shadow-sm`}
-                  onPress={handleSaveServer}
-                >
-                  <Text style={tw`text-white font-bold text-sm`}>Simpan</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Reset to Default */}
-              <TouchableOpacity
-                style={tw`py-2 items-center`}
-                onPress={handleResetServer}
-              >
-                <Text style={tw`text-xs text-gray-400 font-semibold underline`}>Kembalikan ke Default</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
 
         <Animated.View style={[tw`flex-1`, { transform: [{ translateY: keyboardShift }] }]}>
           <ScrollView
@@ -423,18 +266,14 @@ export default function LoginScreen({ navigation }) {
             {/* Kotak Login Solid Putih Lebih Besar untuk Web */}
             <View style={tw`bg-white w-full max-w-[420px] p-8 rounded-[40px] shadow-2xl mb-10 z-20`}>
 
-              {/* Logo DIGI Handover (Tampilan bersih untuk rilis resmi. Rahasia: ketuk 5x cepat untuk mode developer pengaturan server) */}
-              <TouchableOpacity
-                style={tw`items-center mb-8 mt-2`}
-                activeOpacity={1}
-                onPress={handleLogoPress}
-              >
+              {/* Logo DIGI Handover */}
+              <View style={tw`items-center mb-8 mt-2`}>
                 <Image
                   source={require('../../assets/exact_digihandover_logo.png')}
                   style={{ width: 250, height: 40, resizeMode: 'contain', marginBottom: 8 }}
                 />
                 <Text style={tw`text-xs font-bold text-gray-400 tracking-widest uppercase`}>PT Pertamina Patra Niaga</Text>
-              </TouchableOpacity>
+              </View>
 
               <View style={tw`mb-5`}>
                 <Text style={tw`text-gray-500 font-extrabold mb-2 ml-2 text-[10px] uppercase tracking-wider`}>Username</Text>

@@ -13,8 +13,7 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "postinstall": "npx prisma generate || exit 0",
-    "tunnel": "npx localtunnel --port 3000 --subdomain digihandover-pertamina"
+    "postinstall": "npx prisma generate || exit 0"
   },
   "keywords": [],
   "author": "",

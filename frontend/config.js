@@ -81,17 +81,6 @@ export const resetApiUrl = async () => {
   }
 };
 
-// Interceptor global agar LocalTunnel / Ngrok otomatis jalan mulus tanpa halaman interstitial
-axios.interceptors.request.use((config) => {
-  config.headers = config.headers || {};
-  if (config.url && config.url.includes('loca.lt')) {
-    config.headers['bypass-tunnel-reminder'] = 'true';
-  }
-  if (config.url && config.url.includes('ngrok')) {
-    config.headers['ngrok-skip-browser-warning'] = '69420';
-  }
-  return config;
-});
 
 export default {
   get API_URL() {
