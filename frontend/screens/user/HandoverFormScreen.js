@@ -341,6 +341,15 @@ export default function HandoverFormScreen({ route, navigation }) {
   const refreshLocation = async (silent = true) => {
     try {
       if (!silent) setGpsLoading(true);
+
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocation(null);
+        setGpsError("Izin lokasi tidak diberikan.");
+        if (!silent) Alert.alert("Izin Ditolak", "Aplikasi membutuhkan izin lokasi untuk melanjutkan.");
+        return null;
+      }
+
       const isServiceEnabled = await Location.hasServicesEnabledAsync().catch(() => true);
       if (!isServiceEnabled) {
         setLocation(null);
@@ -351,10 +360,17 @@ export default function HandoverFormScreen({ route, navigation }) {
         return null;
       }
 
-      // Ambil posisi baru akurat (Balanced mode)
-      const freshLoc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      // Coba ambil lokasi terakhir (last known) jika masih baru (1 menit)
+      let freshLoc = await Location.getLastKnownPositionAsync({
+        maxAge: 60000 
+      }).catch(() => null);
+
+      if (!freshLoc) {
+        // Jika tidak ada lokasi terakhir, minta posisi baru (Balanced mode agar cepat)
+        freshLoc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+      }
 
       if (freshLoc?.coords) {
         setLocation(freshLoc.coords);
@@ -364,11 +380,26 @@ export default function HandoverFormScreen({ route, navigation }) {
       }
     } catch (err) {
       console.error('GPS error:', err);
+      // Fallback jika getCurrentPosition gagal (misal susah sinyal GPS)
+      try {
+         const fallbackLoc = await Location.getLastKnownPositionAsync();
+         if (fallbackLoc?.coords) {
+           setLocation(fallbackLoc.coords);
+           setGpsUpdatedAt(new Date());
+           setGpsError(null);
+           return fallbackLoc.coords;
+         }
+      } catch (fallbackErr) {
+         console.error('Fallback GPS error:', fallbackErr);
+      }
+
       setLocation(null);
       if (err?.message?.includes('unsatisfied device settings')) {
-        setGpsError("GPS perangkat belum aktif / mode hemat daya.");
+        setGpsError("GPS belum aktif / mode hemat daya.");
+      } else if (err?.message?.includes('Not authorized')) {
+        setGpsError("Izin lokasi ditolak.");
       } else {
-        setGpsError("Menunggu sinyal GPS...");
+        setGpsError("Sinyal GPS lemah. Cari ruang terbuka.");
       }
     } finally {
       if (!silent) setGpsLoading(false);
