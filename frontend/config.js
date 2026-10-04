@@ -8,20 +8,29 @@ export const CUSTOM_API_URL_KEY = '@custom_server_url';
 
 // 1. Dapatkan fallback IP default (dari .env / Expo Go / Web / Default IP)
 export const getDefaultApiUrl = () => {
+  // Prioritas 1: Environment variable (dari .env)
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
   }
   let host = 'localhost';
-  if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined' && window.location?.hostname) {
-      host = window.location.hostname;
+  try {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.location?.hostname) {
+        host = window.location.hostname;
+      }
+    } else if (Constants.expoConfig?.hostUri) {
+      const parsed = Constants.expoConfig.hostUri.split(':')[0];
+      if (parsed) host = parsed;
+    } else if (Constants.manifest?.debuggerHost) {
+      const parsed = Constants.manifest.debuggerHost.split(':')[0];
+      if (parsed) host = parsed;
+    } else if (Constants.manifest2?.extra?.expoGo?.debuggerHost) {
+      const parsed = Constants.manifest2.extra.expoGo.debuggerHost.split(':')[0];
+      if (parsed) host = parsed;
     }
-  } else if (Constants.expoConfig?.hostUri) {
-    host = Constants.expoConfig.hostUri.split(':')[0];
-  } else if (Constants.manifest?.debuggerHost) {
-    host = Constants.manifest.debuggerHost.split(':')[0];
-  } else if (Constants.manifest2?.extra?.expoGo?.debuggerHost) {
-    host = Constants.manifest2.extra.expoGo.debuggerHost.split(':')[0];
+  } catch (e) {
+    // Standalone APK: Constants.manifest bisa null, jangan crash
+    console.warn('getDefaultApiUrl fallback ke localhost:', e?.message);
   }
   return `http://${host}:3000`;
 };
@@ -72,14 +81,6 @@ export const resetApiUrl = async () => {
   }
 };
 
-// Interceptor global agar LocalTunnel / Ngrok otomatis jalan mulus tanpa halaman interstitial
-axios.interceptors.request.use((config) => {
-  if (config.url && config.url.includes('loca.lt')) {
-    config.headers = config.headers || {};
-    config.headers['bypass-tunnel-reminder'] = 'true';
-  }
-  return config;
-});
 
 export default {
   get API_URL() {

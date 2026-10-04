@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { API_URL } from '../../config';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, StyleSheet, Image, ActivityIndicator, Dimensions, Platform, AppState } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, StyleSheet, Image, ActivityIndicator, Dimensions, Platform } from 'react-native';
 import tw from 'twrnc';
 import TextLogo from '../../components/TextLogo';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -75,9 +75,19 @@ export default function HandoverFormScreen({ route, navigation }) {
   }, []);
 
   useEffect(() => {
-    AsyncStorage.getItem('user').then(str => {
-      if (str) setUser(JSON.parse(str));
-    });
+    const loadUser = async () => {
+      try {
+        const str = await AsyncStorage.getItem('user');
+        if (str) {
+          const parsed = JSON.parse(str);
+          setUser(parsed);
+        }
+      } catch (error) {
+        console.error('Gagal membaca data user:', error);
+        setUser(null);
+      }
+    };
+    loadUser();
   }, []);
 
   const handleLogout = async () => {
@@ -324,7 +334,7 @@ export default function HandoverFormScreen({ route, navigation }) {
     })();
   }, []);
 
-  // FUNGSI PENGAMBILAN LOKASI GPS (Manual & Otomatis)
+  // FUNGSI PENGAMBILAN LOKASI GPS (Tanpa request permission — permission diminta sekali di initLocation)
   const fetchLocation = async (silent = true) => {
     try {
       if (!silent) setGpsLoading(true);
@@ -337,18 +347,9 @@ export default function HandoverFormScreen({ route, navigation }) {
         return null;
       }
 
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setGpsError("Izin lokasi belum diberikan.");
-        if (!silent) {
-          Alert.alert("Izin Lokasi Diperlukan", "Harap berikan izin akses lokasi pada aplikasi ini di Pengaturan HP.");
-        }
-        return null;
-      }
-
       // Ambil posisi terakhir yang diketahui secara instan jika ada
       const lastKnown = await Location.getLastKnownPositionAsync({}).catch(() => null);
-      if (lastKnown && lastKnown.coords) {
+      if (lastKnown?.coords) {
         setLocation(lastKnown.coords);
         setGpsError(null);
       }
@@ -356,17 +357,16 @@ export default function HandoverFormScreen({ route, navigation }) {
       // Ambil posisi baru akurat (Balanced mode)
       const freshLoc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
-        timeout: 6000
       });
 
-      if (freshLoc && freshLoc.coords) {
+      if (freshLoc?.coords) {
         setLocation(freshLoc.coords);
         setGpsError(null);
         return freshLoc.coords;
       }
     } catch (err) {
-      const errMsg = err?.message || String(err);
-      if (errMsg.includes("unsatisfied device settings")) {
+      console.error('GPS error:', err);
+      if (err?.message?.includes('unsatisfied device settings')) {
         setGpsError("GPS perangkat belum aktif / mode hemat daya.");
       } else {
         setGpsError("Menunggu sinyal GPS...");
@@ -377,64 +377,60 @@ export default function HandoverFormScreen({ route, navigation }) {
     return null;
   };
 
-  // EFFECT: Watcher & Auto-update Lokasi GPS secara otomatis
+  // EFFECT: Inisialisasi GPS — permission diminta SEKALI, lalu watchPositionAsync memantau perubahan
   useEffect(() => {
     let isMounted = true;
     let watcherSub = null;
 
-    const startWatching = async () => {
+    const initLocation = async () => {
       try {
+        // Request permission SEKALI saja
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted' && isMounted) {
-          watcherSub = await Location.watchPositionAsync(
-            {
-              accuracy: Location.Accuracy.Balanced,
-              timeInterval: 3000,
-              distanceInterval: 5,
-            },
-            (newLocation) => {
-              if (newLocation?.coords && isMounted) {
-                setLocation(newLocation.coords);
-                setGpsError(null);
-              }
-            }
-          );
+        if (status !== 'granted') {
+          if (isMounted) {
+            setGpsError('Izin lokasi belum diberikan.');
+          }
+          return;
         }
-      } catch (e) {
-        if (e?.message?.includes("unsatisfied device settings")) {
-          if (isMounted) setGpsError("GPS perangkat belum aktif / mode hemat daya.");
+
+        if (!isMounted) return;
+
+        // Ambil posisi awal
+        await fetchLocation(true);
+
+        if (!isMounted) return;
+
+        // watchPositionAsync sudah cukup untuk memantau perubahan lokasi
+        // Tidak perlu polling setInterval atau AppState listener
+        watcherSub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 5000,
+            distanceInterval: 10,
+          },
+          (newLocation) => {
+            if (newLocation?.coords && isMounted) {
+              setLocation(newLocation.coords);
+              setGpsError(null);
+            }
+          }
+        );
+      } catch (error) {
+        console.error('Gagal inisialisasi GPS:', error);
+        if (isMounted) {
+          setGpsError('GPS tidak dapat digunakan.');
         }
       }
     };
 
-    fetchLocation(true);
-    startWatching();
-
-    // Auto-detect saat user kembali ke app (misal baru mengaktifkan GPS di Android Quick Settings / Settings)
-    const appStateSub = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active' && isMounted) {
-        fetchLocation(true);
-        if (!watcherSub) {
-          startWatching();
-        }
-      }
-    });
-
-    // Polling ringan berkala selama lokasi belum terdeteksi (setiap 4 detik)
-    const intervalId = setInterval(async () => {
-      if (isMounted) {
-        const services = await Location.hasServicesEnabledAsync().catch(() => false);
-        if (services) {
-          fetchLocation(true);
-        }
-      }
-    }, 4000);
+    initLocation();
 
     return () => {
       isMounted = false;
-      if (watcherSub) watcherSub.remove();
-      appStateSub?.remove();
-      clearInterval(intervalId);
+      if (watcherSub) {
+        watcherSub.remove();
+        watcherSub = null;
+      }
     };
   }, []);
 
@@ -812,14 +808,13 @@ export default function HandoverFormScreen({ route, navigation }) {
 
             <View style={tw`bg-white rounded-xl shadow-sm border border-red-100 p-1`}>
               <TextInput
-                style={[tw`p-3 text-sm text-gray-800 font-medium`, { minHeight: 80 }]}
+                style={[tw`p-3 text-sm text-gray-800 font-medium`, { minHeight: 80, textAlignVertical: 'top' }]}
                 placeholder="Ketik detail kerusakan di sini... (Opsional)"
                 placeholderTextColor="#9CA3AF"
                 value={item.catatan}
                 onChangeText={(text) => updateItemCatatan(originalIdx, text)}
                 multiline
-                scrollEnabled={false} // Supaya otomatis memanjang ke bawah
-                textAlignVertical="top"
+                maxLength={500}
               />
             </View>
 

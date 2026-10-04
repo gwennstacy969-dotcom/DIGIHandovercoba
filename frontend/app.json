@@ -11,6 +11,7 @@
     },
     "android": {
       "package": "com.pertamina.digihandover",
+      "softwareKeyboardLayoutMode": "pan",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
@@ -53,8 +54,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "eddca2c6-b966-4d71-8e74-09a64482cbce"
+        "projectId": "2aa65f6c-6739-40c6-8bc1-895689483618"
       }
-    }
+    },
+    "owner": "haulafatihas-team"
   }
 }

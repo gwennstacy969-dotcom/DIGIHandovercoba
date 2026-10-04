@@ -286,13 +286,51 @@ export default function ScannerScreen({ route, navigation }) {
             }
           }
         } else {
-          // === Validasi khusus Admin/Pengawas saat scan Akhiri ===
-          if (type === 'akhiri' && lastType !== 'mulai') {
-            // Kendaraan ada histori tapi tidak sedang berjalan (sudah diakhiri atau belum mulai)
-            setLastHandover(res.data.lastHandover);
-            setLoading(false);
-            setScanResult('not_started');
-            return;
+          // ==============================
+          // SCAN MULAI (Admin/Pengawas)
+          // ==============================
+          if (type === 'mulai') {
+            if (lastType === 'mulai' && res.data.vehicle?.status === 'Active') {
+              setErrorTitle('Pekerjaan Masih Berjalan');
+              setErrorMessage(`Kendaraan ${vehicleNoPolisi} sudah melakukan Mulai Pekerjaan dan form Mulai telah tersimpan.\n\nKendaraan belum melakukan Akhiri Pekerjaan.\n\nSilakan gunakan Scan "Akhiri Pekerjaan".`);
+              setLoading(false);
+              setScanResult('error');
+              return;
+            }
+            if (res.data.vehicle?.status === 'Maintenance') {
+              setErrorTitle('Kendaraan Dalam Perbaikan');
+              setErrorMessage(`Kendaraan ${vehicleNoPolisi} sedang dalam proses perbaikan dan belum dapat memulai pekerjaan baru.`);
+              setLoading(false);
+              setScanResult('error');
+              return;
+            }
+            if (!isVehicleReady) {
+              setErrorTitle('Kendaraan Belum Siap');
+              setErrorMessage(`Kendaraan ${vehicleNoPolisi} belum berada pada status siap untuk memulai pekerjaan baru.`);
+              setLoading(false);
+              setScanResult('error');
+              return;
+            }
+          }
+
+          // ==============================
+          // SCAN AKHIRI (Admin/Pengawas)
+          // ==============================
+          if (type === 'akhiri') {
+            if (lastType !== 'mulai') {
+              setErrorTitle('Belum Ada Pekerjaan Aktif');
+              setErrorMessage(`Kendaraan ${vehicleNoPolisi} tidak memiliki pekerjaan yang sedang berjalan.`);
+              setLoading(false);
+              setScanResult('error');
+              return;
+            }
+            if (res.data.vehicle?.status === 'Maintenance') {
+              setErrorTitle('Kendaraan Dalam Perbaikan');
+              setErrorMessage(`Kendaraan ${vehicleNoPolisi} masih dalam proses perbaikan dan tidak dapat mengakhiri pekerjaan.`);
+              setLoading(false);
+              setScanResult('error');
+              return;
+            }
           }
         }
 
@@ -308,18 +346,11 @@ export default function ScannerScreen({ route, navigation }) {
       } else {
         // Belum ada handover sama sekali
         if (type === 'akhiri') {
-          if (!isAdminOrPengawas) {
-            setErrorMessage('Kendaraan ini belum memulai pekerjaan.');
-            setLoading(false);
-            setScanResult('error');
-            return;
-          } else {
-            // Admin/Pengawas scan Akhiri tapi kendaraan belum pernah ada handover sama sekali
-            setLastHandover(null);
-            setLoading(false);
-            setScanResult('not_started');
-            return;
-          }
+          setErrorTitle('Belum Mulai Pekerjaan');
+          setErrorMessage(`Kendaraan ${vehicleNoPolisi} belum melakukan Mulai Pekerjaan.\n\nScan Akhiri Pekerjaan tidak dapat dilakukan.`);
+          setLoading(false);
+          setScanResult('error');
+          return;
         }
         setLastHandover(null);
         finalResult = 'success';

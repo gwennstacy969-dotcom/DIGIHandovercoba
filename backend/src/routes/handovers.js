@@ -163,6 +163,41 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
       return true;
     });
 
+    // Validasi dua lapis untuk State Machine Kendaraan
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { noPolisi }
+    });
+
+    if (!vehicle) {
+      return res.status(404).json({ error: 'Kendaraan tidak ditemukan' });
+    }
+
+    const lastHandover = await prisma.handover.findFirst({
+      where: { noPolisi },
+      orderBy: { timestamp: 'desc' },
+      include: { issue: true }
+    });
+
+    if (type === 'mulai') {
+      if (vehicle.status !== 'READY_TO_START') {
+        return res.status(409).json({
+          error: 'Kendaraan masih memiliki pekerjaan aktif atau belum siap untuk Mulai Pekerjaan.'
+        });
+      }
+    }
+
+    if (type === 'akhiri') {
+      if (
+        !lastHandover ||
+        lastHandover.type !== 'mulai' ||
+        vehicle.status !== 'Active'
+      ) {
+        return res.status(409).json({
+          error: 'Kendaraan belum memiliki pekerjaan aktif yang dapat diakhiri.'
+        });
+      }
+    }
+
     // Simpan ke DB
     const handoverNo = await generateHandoverNo();
     const handover = await prisma.handover.create({
