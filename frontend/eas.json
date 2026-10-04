@@ -9,7 +9,9 @@
     },
     "preview": {
       "distribution": "internal",
-
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://ISI_DENGAN_DOMAIN_ATAU_HOSTING_ANDA.com"
+      },
       "android": {
         "buildType": "apk"
       }
