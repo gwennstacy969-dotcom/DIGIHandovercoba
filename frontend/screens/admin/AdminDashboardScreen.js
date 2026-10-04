@@ -9,6 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import axios from 'axios';
 import WebSidebar from '../../components/WebSidebar';
+import NotificationSheet from '../../components/NotificationSheet';
 import WebNavbar from '../../components/WebNavbar';
 import { handleLogoutAndReset } from '../../utils/authHelper';
 
@@ -383,48 +384,12 @@ export default function AdminDashboardScreen({ navigation }) {
       <SafeAreaView style={tw`flex-1 ${isLargeScreen ? 'flex-row' : 'flex-col'}`}>
 
         {/* Modal Notifikasi */}
-        <Modal
-          animationType="slide"
-          transparent={true}
+        <NotificationSheet
           visible={showNotificationsModal}
-          onRequestClose={() => setShowNotificationsModal(false)}
-        >
-          <View style={tw`flex-1 justify-end bg-black/40`}>
-            <View style={[tw`bg-white w-full rounded-t-3xl shadow-2xl`, { height: '80%' }]}>
-              <View style={tw`flex-row justify-between items-center p-6 border-b border-gray-100`}>
-                <Text style={tw`text-xl font-black text-gray-800`}>Notifikasi</Text>
-                <TouchableOpacity onPress={() => setShowNotificationsModal(false)} style={tw`bg-gray-100 p-2 rounded-full`}>
-                  <Feather name="x" size={20} color="#4B5563" />
-                </TouchableOpacity>
-              </View>
-              <ScrollView contentContainerStyle={tw`p-6`}>
-                {notifications.length === 0 ? (
-                  <View style={tw`items-center justify-center py-10`}>
-                    <Feather name="bell-off" size={48} color="#D1D5DB" />
-                    <Text style={tw`text-gray-400 mt-4 font-bold`}>Belum ada notifikasi</Text>
-                  </View>
-                ) : (
-                  notifications.map((notif) => (
-                    <TouchableOpacity
-                      key={notif.id}
-                      style={tw`mb-4 p-4 rounded-2xl border ${notif.isRead ? 'border-gray-100 bg-gray-50' : 'border-red-200 bg-red-50'}`}
-                      onPress={() => {
-                        if (!notif.isRead) handleReadNotification(notif.id);
-                      }}
-                    >
-                      <View style={tw`flex-row items-center justify-between mb-2`}>
-                        <Text style={tw`font-bold ${notif.isRead ? 'text-gray-700' : 'text-red-700'}`}>{notif.title}</Text>
-                        {!notif.isRead && <View style={tw`w-2 h-2 rounded-full bg-[#ED1C24]`} />}
-                      </View>
-                      <Text style={tw`text-gray-600 text-sm leading-5`}>{notif.message}</Text>
-                      <Text style={tw`text-gray-400 text-xs mt-3`}>{new Date(notif.createdAt).toLocaleString('id-ID')}</Text>
-                    </TouchableOpacity>
-                  ))
-                )}
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
+          notifications={notifications}
+          onClose={() => setShowNotificationsModal(false)}
+          onRead={handleReadNotification}
+        />
 
         {/* ULTRA PREMIUM SIDEBAR */}
         {isLargeScreen && user && (
