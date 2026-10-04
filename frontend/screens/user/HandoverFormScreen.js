@@ -211,6 +211,7 @@ export default function HandoverFormScreen({ route, navigation }) {
       { isOpen: isCameraOpen, close: () => setIsCameraOpen(false) },
       { isOpen: showExitConfirmModal, close: () => setShowExitConfirmModal(false) },
       { isOpen: showConfirmSubmitModal, close: () => setShowConfirmSubmitModal(false) },
+      { isOpen: showLocationModal, close: () => setShowLocationModal(false) },
       { isOpen: validationModalVisible, close: () => setValidationModalVisible(false) },
     ],
     onBack: () => {
