@@ -22,19 +22,11 @@ const submitHandoverSchema = Joi.object({
   }),
   type: Joi.string().valid('mulai', 'akhiri').default('mulai'),
   status: Joi.string().valid('Aman', 'Siap Operasi (Normal)', 'Ada Masalah', 'FORCE_RELEASED', 'STARTED', 'FINISHED').allow(null, ''),
-  // Koordinat lokasi wajib untuk setiap handover yang masuk database.
-  // Rentang dibatasi agar data GPS yang tidak masuk akal ditolak di backend.
-  locationLat: Joi.number().min(-90).max(90).required().messages({
-    'any.required': 'Latitude GPS wajib dikirim',
-    'number.base': 'Latitude GPS harus berupa angka',
-    'number.min': 'Latitude GPS tidak valid',
-    'number.max': 'Latitude GPS tidak valid'
+  locationLat: Joi.number().required().messages({
+    'any.required': 'Lokasi (Latitude) wajib disertakan'
   }),
-  locationLng: Joi.number().min(-180).max(180).required().messages({
-    'any.required': 'Longitude GPS wajib dikirim',
-    'number.base': 'Longitude GPS harus berupa angka',
-    'number.min': 'Longitude GPS tidak valid',
-    'number.max': 'Longitude GPS tidak valid'
+  locationLng: Joi.number().required().messages({
+    'any.required': 'Lokasi (Longitude) wajib disertakan'
   }),
   items: Joi.alternatives().try(Joi.string(), Joi.array()).required().messages({
     'any.required': 'Daftar item checklist wajib disertakan'

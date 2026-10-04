@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { API_URL } from '../../config';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, StyleSheet, Image, ActivityIndicator, Dimensions, Platform, AppState, Linking } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, StyleSheet, Image, ActivityIndicator, Dimensions, Platform } from 'react-native';
 import tw from 'twrnc';
 import TextLogo from '../../components/TextLogo';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -162,7 +162,8 @@ export default function HandoverFormScreen({ route, navigation }) {
   const [notes, setNotes] = useState('');
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState(null);
-  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [gpsUpdatedAt, setGpsUpdatedAt] = useState(null);
+  const [showGpsModal, setShowGpsModal] = useState(false);
   const [photos, setPhotos] = useState({ Depan: null, Belakang: null, Kanan: null, Kiri: null });
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
@@ -211,7 +212,7 @@ export default function HandoverFormScreen({ route, navigation }) {
       { isOpen: isCameraOpen, close: () => setIsCameraOpen(false) },
       { isOpen: showExitConfirmModal, close: () => setShowExitConfirmModal(false) },
       { isOpen: showConfirmSubmitModal, close: () => setShowConfirmSubmitModal(false) },
-      { isOpen: showLocationModal, close: () => setShowLocationModal(false) },
+      { isOpen: showGpsModal, close: () => setShowGpsModal(false) },
       { isOpen: validationModalVisible, close: () => setValidationModalVisible(false) },
     ],
     onBack: () => {
@@ -336,213 +337,78 @@ export default function HandoverFormScreen({ route, navigation }) {
     })();
   }, []);
 
-  // =========================================================
-  // GPS: WAJIB TERDETEKSI SEBELUM FOTO / SUBMIT
-  // =========================================================
-  const LOCATION_MAX_AGE_MS = 2 * 60 * 1000;
-
-  const isUsableLocation = (loc) => {
-    if (!loc?.coords) return false;
-
-    const timestamp = Number(loc.timestamp);
-    if (!Number.isFinite(timestamp)) return false;
-
-    const age = Date.now() - timestamp;
-    return age >= 0 && age <= LOCATION_MAX_AGE_MS;
-  };
-
-  const formatLocationTime = (loc) => {
-    if (!loc?.timestamp) return '-';
-
+  // FUNGSI PENGAMBILAN LOKASI GPS (Dipanggil sekali saat mount, dan saat user menekan refresh)
+  const refreshLocation = async (silent = true) => {
     try {
-      return new Date(loc.timestamp).toLocaleString('id-ID');
-    } catch {
-      return '-';
-    }
-  };
-
-  const fetchLocation = async (silent = false) => {
-    try {
-      setGpsLoading(true);
-      setGpsError(null);
-
-      // Pastikan izin lokasi foreground tersedia.
-      let permissionStatus = await Location.getForegroundPermissionsAsync();
-
-      if (!permissionStatus.granted) {
-        permissionStatus = await Location.requestForegroundPermissionsAsync();
-      }
-
-      if (!permissionStatus.granted) {
-        const message = permissionStatus.canAskAgain
-          ? 'Izin lokasi belum diberikan.'
-          : 'Izin lokasi diblokir. Aktifkan izin Lokasi untuk DIGI Handover melalui Pengaturan HP.';
-
-        setGpsError(message);
-
+      if (!silent) setGpsLoading(true);
+      const isServiceEnabled = await Location.hasServicesEnabledAsync().catch(() => true);
+      if (!isServiceEnabled) {
+        setLocation(null);
+        setGpsError("Layanan lokasi (GPS) belum aktif di HP.");
         if (!silent) {
-          Alert.alert(
-            'Izin Lokasi Diperlukan',
-            message,
-            permissionStatus.canAskAgain
-              ? [{ text: 'Mengerti' }]
-              : [
-                  { text: 'Batal', style: 'cancel' },
-                  { text: 'Buka Pengaturan', onPress: () => Linking.openSettings() }
-                ]
-          );
+          Alert.alert("GPS Tidak Aktif", "Silakan nyalakan GPS / Layanan Lokasi di HP Anda, lalu coba lagi.");
         }
-
         return null;
       }
 
-      // Pastikan layanan lokasi perangkat aktif.
-      let servicesEnabled = await Location.hasServicesEnabledAsync().catch(() => false);
+      // Ambil posisi baru akurat (Balanced mode)
+      const freshLoc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
 
-      if (!servicesEnabled && Platform.OS === 'android') {
-        try {
-          await Location.enableNetworkProviderAsync();
-          servicesEnabled = await Location.hasServicesEnabledAsync().catch(() => false);
-        } catch (providerError) {
-          console.warn('Network provider tidak diaktifkan:', providerError?.message);
-        }
-      }
-
-      if (!servicesEnabled) {
-        const message = 'Layanan lokasi/GPS HP belum aktif. Nyalakan Lokasi lalu tekan Perbarui Lokasi.';
-
-        setGpsError(message);
-
-        if (!silent) {
-          Alert.alert(
-            'GPS Belum Aktif',
-            message,
-            [
-              { text: 'Tutup', style: 'cancel' },
-              { text: 'Periksa Lagi', onPress: () => fetchLocation(false) }
-            ]
-          );
-        }
-
-        return null;
-      }
-
-      // Posisi terakhir yang masih cukup baru, agar UI punya nilai awal dengan cepat.
-      const lastKnown = await Location.getLastKnownPositionAsync({
-        maxAge: LOCATION_MAX_AGE_MS
-      }).catch(() => null);
-
-      if (lastKnown?.coords) {
-        setLocation(lastKnown);
-      }
-
-      // Ambil fix baru. getCurrentPositionAsync dapat memerlukan beberapa detik,
-      // jadi gunakan timeout aplikasi agar UI tidak menunggu tanpa batas.
-      const freshLocation = await Promise.race([
-        Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('GPS_TIMEOUT')), 12000)
-        )
-      ]);
-
-      if (freshLocation?.coords && isUsableLocation(freshLocation)) {
-        setLocation(freshLocation);
+      if (freshLoc?.coords) {
+        setLocation(freshLoc.coords);
+        setGpsUpdatedAt(new Date());
         setGpsError(null);
-        return freshLocation;
+        return freshLoc.coords;
       }
-
-      throw new Error('GPS_NO_FIX');
     } catch (err) {
       console.error('GPS error:', err);
-
-      const message =
-        err?.message === 'GPS_TIMEOUT'
-          ? 'GPS belum mendapatkan titik lokasi dalam 12 detik. Pastikan berada di area terbuka dan Lokasi HP aktif.'
-          : err?.message === 'GPS_NO_FIX'
-            ? 'Titik lokasi belum tersedia. Coba Perbarui Lokasi lagi.'
-            : 'GPS tidak dapat digunakan. Periksa izin dan layanan lokasi perangkat.';
-
-      setGpsError(message);
-
-      if (!silent) {
-        Alert.alert('Lokasi Belum Terdeteksi', message);
+      setLocation(null);
+      if (err?.message?.includes('unsatisfied device settings')) {
+        setGpsError("GPS perangkat belum aktif / mode hemat daya.");
+      } else {
+        setGpsError("Menunggu sinyal GPS...");
       }
-
-      return null;
     } finally {
-      setGpsLoading(false);
+      if (!silent) setGpsLoading(false);
     }
+    return null;
   };
 
-  // Inisialisasi GPS dan watcher. Tidak menggunakan polling agresif.
+  // EFFECT: Inisialisasi GPS — permission diminta SEKALI, lalu ambil lokasi sekali saja.
   useEffect(() => {
     let isMounted = true;
-    let watcherSub = null;
 
     const initLocation = async () => {
-      // Jangan mengganggu pengguna dengan alert saat halaman baru dibuka.
-      await fetchLocation(true);
-
-      if (!isMounted) return;
-
       try {
-        watcherSub = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 5000,
-            distanceInterval: 5,
-          },
-          (newLocation) => {
-            if (newLocation?.coords && isMounted) {
-              setLocation(newLocation);
-              setGpsError(null);
-            }
-          },
-          (watchError) => {
-            console.warn('GPS watcher error:', watchError);
+        // Request permission SEKALI saja
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          if (isMounted) {
+            setGpsError('Izin lokasi belum diberikan.');
           }
-        );
+          return;
+        }
+
+        if (!isMounted) return;
+
+        // Ambil posisi awal sekali saja saat form dibuka
+        await refreshLocation(true);
       } catch (error) {
-        console.error('Gagal memulai GPS watcher:', error);
+        console.error('Gagal inisialisasi GPS:', error);
+        if (isMounted) {
+          setGpsError('GPS tidak dapat digunakan.');
+        }
       }
     };
 
     initLocation();
 
-    // Setelah user menyalakan GPS melalui Quick Settings / Settings
-    // lalu kembali ke aplikasi, lakukan pembacaan ulang.
-    const appStateSub = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && isMounted) {
-        fetchLocation(true);
-      }
-    });
-
     return () => {
       isMounted = false;
-      watcherSub?.remove();
-      appStateSub?.remove();
     };
   }, []);
-
-  // Sinkronisasi otomatis watermark foto jika lokasi GPS baru saja terdeteksi
-  useEffect(() => {
-    if (location) {
-      const locStr = `Lat: ${location.coords.latitude.toFixed(5)}, Lng: ${location.coords.longitude.toFixed(5)}`;
-      setPhotos(prev => {
-        let hasUpdate = false;
-        const nextPhotos = { ...prev };
-        Object.keys(nextPhotos).forEach(key => {
-          if (nextPhotos[key] && (!nextPhotos[key].locStr || nextPhotos[key].locStr.includes('tidak ditemukan'))) {
-            nextPhotos[key] = { ...nextPhotos[key], locStr };
-            hasUpdate = true;
-          }
-        });
-        return hasUpdate ? nextPhotos : prev;
-      });
-    }
-  }, [location]);
 
   // AUTOCOMPLETE LOGIC (Sorted Alphabetically & Dedicated for AMT 1 vs AMT 2)
   const handleSearchAmt1 = (text) => {
@@ -596,105 +462,66 @@ export default function HandoverFormScreen({ route, navigation }) {
   };
 
   // CAMERA LOGIC
-  const openCameraFor = async (photoType) => {
-    let cameraPermission = permission;
-
-    if (!cameraPermission?.granted) {
-      cameraPermission = await requestPermission();
-
-      if (!cameraPermission?.granted) {
-        Alert.alert(
-          'Izin Kamera Diperlukan',
-          'Berikan izin kamera terlebih dahulu untuk mengambil foto kendaraan.'
-        );
-        return;
-      }
-    }
-
-    // Foto kendaraan WAJIB memiliki keterangan lokasi yang valid.
-    const currentLoc = await fetchLocation(false);
-
-    if (!currentLoc) {
-      Alert.alert(
-        'Lokasi Wajib Terdeteksi',
-        'Foto belum dapat diambil karena lokasi GPS belum terdeteksi. Aktifkan Lokasi HP lalu Perbarui Lokasi.'
-      );
+  const openCameraFor = async (type) => {
+    if (!permission) return;
+    if (!permission.granted) {
+      Alert.alert('Izin Diperlukan', 'Kami butuh izin kamera untuk mengambil foto.', [
+        { text: 'Batal', style: 'cancel' },
+        { text: 'Berikan Izin', onPress: requestPermission }
+      ]);
       return;
     }
 
-    setActivePhotoType(photoType);
+    if (!location) {
+      Alert.alert('GPS Belum Siap', 'Silakan tunggu atau perbarui lokasi GPS di bagian Info Perjalanan sebelum mengambil foto.');
+      return;
+    }
+
+    // Pengecekan instan: Pastikan GPS masih menyala saat ini
+    const isServiceEnabled = await Location.hasServicesEnabledAsync().catch(() => true);
+    if (!isServiceEnabled) {
+      setLocation(null);
+      setGpsError("Layanan lokasi (GPS) dimatikan.");
+      Alert.alert('GPS Dimatikan', 'Sistem mendeteksi GPS Anda dimatikan. Harap nyalakan kembali dan perbarui lokasi sebelum mengambil foto.');
+      return;
+    }
+
+    // Buka kamera langsung tanpa menunggu (instan)
+    setActivePhotoType(type);
     setPreviewPhoto(null);
     setIsCameraReady(false);
     setIsCameraOpen(true);
   };
 
-  const takePicture = async () => {
-    if (!cameraRef.current || loading) return;
+  const takePicture = () => {
+    if (cameraRef.current && !loading) {
+      setLoading(true);
 
-    setLoading(true);
+      // Beri jeda sedikit agar UI (Loading Indicator) ter-render mulus sebelum membebani Native Camera
+      setTimeout(async () => {
+        try {
+          const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
 
-    try {
-      // Ambil fix GPS tepat sebelum foto supaya watermark tidak memakai state lokasi lama/null.
-      const currentLoc = await fetchLocation(false);
+          const now = new Date();
+          const timestampStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-      if (!currentLoc) {
-        Alert.alert(
-          'Lokasi Wajib Terdeteksi',
-          'Foto tidak disimpan karena GPS belum mendapatkan lokasi yang valid. Silakan coba lagi setelah lokasi terdeteksi.'
-        );
-        return;
-      }
+          let locStr = 'Lokasi tidak ditemukan';
+          if (location) {
+            locStr = `Lat: ${location.latitude.toFixed(5)}, Lng: ${location.longitude.toFixed(5)}`;
+          }
 
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7
-      });
-
-      const now = new Date();
-      const timestampStr =
-        `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1)
-          .toString()
-          .padStart(2, '0')}/${now.getFullYear()} ${now
-          .getHours()
-          .toString()
-          .padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-
-      const locStr =
-        `Lat: ${currentLoc.coords.latitude.toFixed(6)}, Lng: ${currentLoc.coords.longitude.toFixed(6)}`;
-
-      setPreviewPhoto({
-        ...photo,
-        timestampStr,
-        locStr,
-        locationAccuracy: currentLoc.coords.accuracy ?? null,
-        locationTimestamp: currentLoc.timestamp
-      });
-    } catch (error) {
-      console.error('Gagal mengambil foto:', error);
-      Alert.alert(
-        'Foto Gagal',
-        'Foto tidak dapat diambil. Pastikan kamera siap dan lokasi GPS masih aktif.'
-      );
-    } finally {
-      setLoading(false);
+          setPreviewPhoto({ ...photo, timestampStr, locStr });
+        } catch (error) {
+          console.error("Gagal mengambil foto:", error);
+        } finally {
+          setLoading(false);
+        }
+      }, 50); // 50ms sudah cukup untuk 3 frame UI (60fps)
     }
   };
 
   const savePhoto = () => {
-    if (!previewPhoto?.uri || !previewPhoto?.locStr) {
-      Alert.alert(
-        'Lokasi Belum Valid',
-        'Foto tidak dapat disimpan tanpa keterangan lokasi GPS.'
-      );
-      return;
-    }
-
-    setPhotos(prev => ({
-      ...prev,
-      [activePhotoType]: previewPhoto
-    }));
-
+    setPhotos({ ...photos, [activePhotoType]: previewPhoto });
     setIsCameraOpen(false);
     setPreviewPhoto(null);
     setActivePhotoType(null);
@@ -719,6 +546,20 @@ export default function HandoverFormScreen({ route, navigation }) {
     if (loading || isSubmittingRef.current) return;
 
     // 1. Validasi Info Dasar & Odometer
+    if (!location) {
+      showValidationError("GPS Belum Siap", "Lokasi belum terdeteksi. Silakan periksa status GPS Anda sebelum mengirim laporan.");
+      return;
+    }
+
+    // Pengecekan instan: Pastikan GPS masih menyala saat ini
+    const isServiceEnabled = await Location.hasServicesEnabledAsync().catch(() => true);
+    if (!isServiceEnabled) {
+      setLocation(null);
+      setGpsError("Layanan lokasi (GPS) dimatikan.");
+      showValidationError("GPS Dimatikan", "Sistem mendeteksi GPS Anda telah dimatikan. Harap nyalakan kembali dan perbarui lokasi di Info Perjalanan.");
+      return;
+    }
+
     if (!noPolisi || !odoMeter || !shift) {
       showValidationError("Perhatian", "Informasi perjalanan (Plat, Shift, Odo Meter) tidak boleh kosong.");
       return;
@@ -744,17 +585,6 @@ export default function HandoverFormScreen({ route, navigation }) {
       showValidationError(
         "Peringatan Odometer",
         `Odometer Akhir (${currentOdoNum.toLocaleString('id-ID')} km) tidak boleh lebih kecil dari Odometer Awal (${previousOdometer.toLocaleString('id-ID')} km). Harap periksa kembali angka odometer fisik kendaraan.`
-      );
-      return;
-    }
-
-    // GPS WAJIB terdeteksi sebelum form dapat dikirim.
-    const currentLoc = await fetchLocation(false);
-
-    if (!currentLoc) {
-      showValidationError(
-        'Lokasi GPS Wajib',
-        'Form Handover tidak dapat dikirim sebelum lokasi GPS terdeteksi. Nyalakan Lokasi HP dan gunakan tombol Keterangan Lokasi untuk mencoba lagi.'
       );
       return;
     }
@@ -822,17 +652,12 @@ export default function HandoverFormScreen({ route, navigation }) {
         formData.append('notes', notes.trim());
       }
 
-      // Re-check GPS tepat sebelum submit agar koordinat tidak kosong/stale.
-      const currentLoc = isUsableLocation(location)
-        ? location
-        : await fetchLocation(false);
+      let currentLoc = location;
 
-      if (!currentLoc || !isUsableLocation(currentLoc)) {
-        throw new Error('GPS_REQUIRED');
+      if (currentLoc) {
+        formData.append('locationLat', currentLoc.latitude);
+        formData.append('locationLng', currentLoc.longitude);
       }
-
-      formData.append('locationLat', currentLoc.coords.latitude);
-      formData.append('locationLng', currentLoc.coords.longitude);
 
       for (const key of Object.keys(photos)) {
         const p = photos[key];
@@ -904,17 +729,7 @@ export default function HandoverFormScreen({ route, navigation }) {
       setLoading(false);
       isSubmittingRef.current = false;
       console.error(error);
-      if (error?.message === 'GPS_REQUIRED') {
-        showValidationError(
-          'Lokasi GPS Wajib',
-          'Data tidak dikirim karena lokasi GPS belum tersedia atau sudah terlalu lama. Perbarui lokasi lalu kirim kembali.'
-        );
-      } else {
-        showValidationError(
-          'Error',
-          'Gagal mengirim laporan. Pastikan Backend sudah menyala, koneksi internet stabil, dan coba lagi.'
-        );
-      }
+      showValidationError('Error', 'Gagal mengirim laporan. Pastikan Backend sudah menyala dan internet stabil.');
     }
   };
 
@@ -1067,64 +882,23 @@ export default function HandoverFormScreen({ route, navigation }) {
                 <Text style={tw`text-gray-800 font-extrabold text-base tracking-tight`}>Info Perjalanan</Text>
               </View>
 
-              {/* GPS / Keterangan Lokasi */}
+              {/* GPS Detail di Samping Info Perjalanan */}
               <TouchableOpacity
-                onPress={() => {
-                  setShowLocationModal(true);
-                  fetchLocation(false);
-                }}
-                disabled={gpsLoading}
+                onPress={() => setShowGpsModal(true)}
                 activeOpacity={0.7}
-                style={tw`flex-row items-center bg-white border ${
-                  isUsableLocation(location) ? 'border-emerald-200' : 'border-amber-200'
-                } px-3 py-2 rounded-2xl shadow-sm`}
+                style={tw`flex-row items-center bg-white border ${location ? 'border-emerald-200' : 'border-amber-200'} px-3 py-2 rounded-2xl shadow-sm`}
               >
-                <View
-                  style={tw`w-7 h-7 rounded-xl ${
-                    isUsableLocation(location) ? 'bg-emerald-500' : 'bg-amber-500'
-                  } items-center justify-center mr-2.5 flex-shrink-0 shadow-sm`}
-                >
-                  {gpsLoading ? (
-                    <ActivityIndicator
-                      size="small"
-                      color="#FFFFFF"
-                      style={{ transform: [{ scale: 0.65 }] }}
-                    />
-                  ) : (
-                    <Ionicons
-                      name={isUsableLocation(location) ? "location" : "locate"}
-                      size={13}
-                      color="#FFFFFF"
-                    />
-                  )}
+                <View style={tw`w-7 h-7 rounded-xl ${location ? 'bg-emerald-500' : 'bg-amber-500'} items-center justify-center mr-2.5 flex-shrink-0 shadow-sm`}>
+                  <Ionicons name={location ? "location" : "navigate"} size={13} color="#FFFFFF" />
                 </View>
-
-                <View style={tw`justify-center flex-1`}>
+                <View style={tw`justify-center`}>
                   <View style={tw`flex-row items-center`}>
-                    <Text
-                      style={tw`text-xs font-black ${
-                        isUsableLocation(location) ? 'text-emerald-800' : 'text-amber-800'
-                      } tracking-tight`}
-                    >
-                      {isUsableLocation(location)
-                        ? 'Lokasi Terdeteksi'
-                        : (gpsLoading ? 'Mendeteksi Lokasi...' : 'Lokasi Belum Terdeteksi')}
+                    <Text style={tw`text-xs font-black ${location ? 'text-emerald-800' : 'text-amber-800'} tracking-tight`}>
+                      {location ? 'GPS Terdeteksi' : 'GPS Belum Siap'}
                     </Text>
-
-                    {!gpsLoading && (
-                      <Feather
-                        name="info"
-                        size={10}
-                        color={isUsableLocation(location) ? "#059669" : "#D97706"}
-                        style={tw`ml-1.5 opacity-70`}
-                      />
-                    )}
                   </View>
-
                   <Text style={tw`text-[10px] font-bold text-gray-500 font-mono mt-0.5`}>
-                    {isUsableLocation(location)
-                      ? `${location.coords.latitude.toFixed(5)}, ${location.coords.longitude.toFixed(5)}`
-                      : (gpsError || 'Ketuk untuk melihat keterangan')}
+                    Ketuk untuk detail
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -1397,109 +1171,6 @@ export default function HandoverFormScreen({ route, navigation }) {
           </View>
         </View>
       </View>
-
-      {/* MODAL KETERANGAN LOKASI */}
-      <Modal
-        visible={showLocationModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowLocationModal(false)}
-      >
-        <View style={tw`flex-1 justify-center items-center bg-black/60 px-6`}>
-          <View style={tw`bg-white w-full max-w-sm rounded-[30px] p-7 shadow-2xl`}>
-            <View style={tw`items-center mb-5`}>
-              <View
-                style={tw`w-16 h-16 rounded-2xl items-center justify-center mb-3 ${
-                  isUsableLocation(location) ? 'bg-emerald-100' : 'bg-amber-100'
-                }`}
-              >
-                <Ionicons
-                  name={isUsableLocation(location) ? 'location' : 'locate-outline'}
-                  size={34}
-                  color={isUsableLocation(location) ? '#059669' : '#D97706'}
-                />
-              </View>
-
-              <Text style={tw`text-2xl font-black text-gray-800 text-center`}>
-                Keterangan Lokasi
-              </Text>
-
-              <Text style={tw`text-gray-500 text-center text-sm mt-1`}>
-                Lokasi wajib terdeteksi sebelum foto dan pengiriman form.
-              </Text>
-            </View>
-
-            <View style={tw`bg-slate-50 rounded-2xl p-4 border border-slate-200 mb-5`}>
-              <Text style={tw`text-xs font-black text-gray-500 uppercase tracking-wider mb-2`}>
-                Status GPS
-              </Text>
-
-              <Text
-                style={tw`font-extrabold ${
-                  isUsableLocation(location) ? 'text-emerald-700' : 'text-amber-700'
-                }`}
-              >
-                {isUsableLocation(location)
-                  ? 'GPS TERDETEKSI'
-                  : (gpsError || 'GPS belum mendapatkan titik lokasi')}
-              </Text>
-
-              {isUsableLocation(location) && (
-                <>
-                  <Text style={tw`text-gray-700 font-mono text-sm mt-3`}>
-                    Latitude: {location.coords.latitude.toFixed(6)}
-                  </Text>
-
-                  <Text style={tw`text-gray-700 font-mono text-sm mt-1`}>
-                    Longitude: {location.coords.longitude.toFixed(6)}
-                  </Text>
-
-                  <Text style={tw`text-gray-500 text-xs mt-2`}>
-                    Akurasi: ±{location.coords.accuracy ? Math.round(location.coords.accuracy) : '-'} meter
-                  </Text>
-
-                  <Text style={tw`text-gray-400 text-xs mt-1`}>
-                    Diperbarui: {formatLocationTime(location)}
-                  </Text>
-                </>
-              )}
-            </View>
-
-            <TouchableOpacity
-              style={tw`w-full bg-[#0055A5] py-4 rounded-2xl items-center mb-3 ${
-                gpsLoading ? 'opacity-60' : ''
-              }`}
-              onPress={() => fetchLocation(false)}
-              disabled={gpsLoading}
-            >
-              {gpsLoading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <View style={tw`flex-row items-center`}>
-                  <Ionicons name="locate" size={20} color="white" style={tw`mr-2`} />
-                  <Text style={tw`text-white font-extrabold`}>Perbarui Lokasi</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-
-            {!isUsableLocation(location) && (
-              <TouchableOpacity
-                style={tw`w-full bg-amber-50 py-3.5 rounded-2xl items-center border border-amber-200 mb-3`}
-                onPress={() => Linking.openSettings()}
-              >
-                <Text style={tw`text-amber-800 font-bold`}>Buka Pengaturan Lokasi</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity
-              style={tw`w-full bg-gray-100 py-3.5 rounded-2xl items-center`}
-              onPress={() => setShowLocationModal(false)}
-            >
-              <Text style={tw`text-gray-700 font-bold`}>Tutup</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {/* MODAL LOADING */}
       <Modal visible={loading} transparent={true} animationType="fade">
@@ -1812,6 +1483,60 @@ export default function HandoverFormScreen({ route, navigation }) {
             >
               <Text style={tw`text-sm text-white font-black tracking-widest uppercase`}>Mengerti</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showGpsModal} transparent animationType="fade" onRequestClose={() => setShowGpsModal(false)}>
+        <View style={tw`flex-1 bg-black/60 justify-center items-center p-4`}>
+          <View style={tw`bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl`}>
+            <LinearGradient colors={['#F8FAFC', '#F1F5F9']} style={tw`px-5 py-4 border-b border-gray-100 flex-row justify-between items-center`}>
+              <Text style={tw`font-extrabold text-lg text-gray-800`}>Informasi Lokasi</Text>
+              <TouchableOpacity onPress={() => setShowGpsModal(false)} style={tw`p-1 bg-gray-200 rounded-full`}>
+                <Ionicons name="close" size={20} color="#4B5563" />
+              </TouchableOpacity>
+            </LinearGradient>
+            
+            <View style={tw`p-5`}>
+              <Text style={tw`text-sm text-gray-600 mb-4`}>Lokasi Anda digunakan untuk watermark foto dan bukti serah terima.</Text>
+              
+              <View style={tw`bg-slate-50 p-4 rounded-2xl border ${location ? 'border-emerald-200' : 'border-amber-200'} mb-5`}>
+                <Text style={tw`text-xs font-bold text-gray-500 mb-1`}>Status GPS:</Text>
+                <Text style={tw`text-base font-extrabold ${location ? 'text-emerald-700' : 'text-amber-700'} mb-3`}>
+                  {location ? 'Terdeteksi' : (gpsError || 'Belum Terdeteksi')}
+                </Text>
+                
+                <Text style={tw`text-xs font-bold text-gray-500 mb-1`}>Koordinat:</Text>
+                <Text style={tw`text-sm font-mono font-bold text-gray-800 mb-3`}>
+                  {location ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}` : '-'}
+                </Text>
+
+                <Text style={tw`text-xs font-bold text-gray-500 mb-1`}>Akurasi:</Text>
+                <Text style={tw`text-sm font-mono font-bold text-gray-800 mb-3`}>
+                  {location ? `± ${location.accuracy.toFixed(1)} meter` : '-'}
+                </Text>
+
+                <Text style={tw`text-xs font-bold text-gray-500 mb-1`}>Terakhir Diperbarui:</Text>
+                <Text style={tw`text-sm font-mono font-bold text-gray-800`}>
+                  {gpsUpdatedAt ? `${gpsUpdatedAt.getHours().toString().padStart(2, '0')}:${gpsUpdatedAt.getMinutes().toString().padStart(2, '0')}:${gpsUpdatedAt.getSeconds().toString().padStart(2, '0')}` : '-'}
+                </Text>
+              </View>
+
+              <TouchableOpacity 
+                onPress={() => refreshLocation(false)} 
+                disabled={gpsLoading}
+                style={tw`${gpsLoading ? 'bg-gray-400' : 'bg-blue-600'} flex-row items-center justify-center p-4 rounded-2xl shadow-sm`}
+              >
+                {gpsLoading ? (
+                  <ActivityIndicator color="white" style={tw`mr-2`} />
+                ) : (
+                  <Ionicons name="refresh" size={20} color="white" style={tw`mr-2`} />
+                )}
+                <Text style={tw`text-white font-extrabold text-base`}>
+                  {gpsLoading ? 'Memperbarui...' : 'Perbarui Lokasi Sekarang'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
