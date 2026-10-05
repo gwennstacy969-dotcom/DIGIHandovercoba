@@ -1,0 +1,51 @@
+name: Production Auto Deploy to Sumopod VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Sync & Deploy to VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Connection
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync Updated Files to VPS
+        run: |
+          rsync -avz \
+            --exclude 'node_modules' \
+            --exclude '.git' \
+            --exclude '.env' \
+            --exclude 'backend/uploads' \
+            --exclude 'backend/barcodes' \
+            ./ root@${{ secrets.VPS_HOST }}:/var/www/handover-app/
+
+      - name: Update Backend & Build Web on VPS
+        run: |
+          ssh root@${{ secrets.VPS_HOST }} << 'EOF'
+            echo "🚀 Updating backend..."
+            cd /var/www/handover-app/backend
+            npm install --omit=dev
+            npx prisma generate
+            npx prisma db push
+            pm2 restart pertamina-backend
+
+            echo "🌐 Building & updating frontend website..."
+            cd /var/www/handover-app/frontend
+            npm install --legacy-peer-deps
+            npx expo export --platform web
+            mkdir -p /var/www/handover-web
+            cp -r dist/* /var/www/handover-web/
+
+            echo "✅ Auto-deployment selesai! Website & backend telah terupdate otomatis."
+          EOF
