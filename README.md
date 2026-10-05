@@ -186,7 +186,7 @@ HandoverApp/
    ```
    Sesuaikan konfigurasi database Anda di file `.env`:
    ```env
-   DATABASE_URL="mysql://root:password@localhost:3306/handover_pertamina"
+   DATABASE_URL="mysql://username:password@localhost:3306/database_name"
    PORT=3000
    ```
 

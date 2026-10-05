@@ -179,7 +179,7 @@ export default function IssueListScreen({ navigation }) {
     return (
       <TouchableOpacity
         style={[
-          tw`bg-white p-5 rounded-2xl mb-4 shadow-md border ${isResolved ? 'border-blue-300 bg-blue-50/20' : (isPending ? 'border-orange-300 bg-orange-50/50' : 'border-red-300 bg-red-50/50')}`,
+          tw`bg-white p-5 rounded-2xl mb-4 shadow-sm border ${isResolved ? 'border-blue-200' : (isPending ? 'border-orange-200' : 'border-red-200')}`,
           isLargeScreen ? { width: 'calc(33.333% - 11px)' } : tw`w-full`
         ]}
         onPress={() => { if (user?.role === 'SUPER_ADMIN' || user?.role === 'PENGAWAS' || user?.role === 'ADMIN') navigation.navigate('IssueDetail', { issueId: item.issueId }); }}
@@ -187,7 +187,7 @@ export default function IssueListScreen({ navigation }) {
       >
         <View style={tw`flex-row justify-between items-start mb-3 gap-2`}>
           <View style={[tw`flex-row items-center flex-1 mr-2`, { minWidth: 0 }]}>
-            <View style={[tw`w-12 h-12 rounded-full items-center justify-center mr-3 ${isResolved ? 'bg-blue-100' : (isPending ? 'bg-orange-100' : 'bg-red-200')}`, { flexShrink: 0 }]}>
+            <View style={[tw`w-12 h-12 rounded-full items-center justify-center mr-3 ${isResolved ? 'bg-blue-50' : (isPending ? 'bg-orange-50' : 'bg-red-50')}`, { flexShrink: 0 }]}>
               <Ionicons name={isResolved ? 'checkmark-circle' : 'build'} size={26} color={isResolved ? '#0055A5' : (isPending ? '#F59E0B' : '#991B1B')} />
             </View>
             <View style={[tw`flex-1`, { minWidth: 0 }]}>
@@ -197,8 +197,8 @@ export default function IssueListScreen({ navigation }) {
               </Text>
             </View>
           </View>
-          <View style={[tw`px-2.5 py-1 rounded-full ${isResolved ? 'bg-[#0055A5]' : (isPending ? 'bg-orange-500' : 'bg-red-600')}`, { flexShrink: 0 }]}>
-            <Text style={tw`text-[11px] font-bold text-white tracking-wide`}>
+          <View style={[tw`px-3 py-1.5 rounded-full ${isResolved ? 'bg-[#0055A5]' : (isPending ? 'bg-orange-500' : 'bg-red-600')}`, { flexShrink: 0 }]}>
+            <Text style={tw`text-xs font-bold text-white`}>
               {isResolved ? 'SELESAI' : (isPending ? 'PERSETUJUAN' : 'SEDANG DIPERBAIKI')}
             </Text>
           </View>
@@ -206,7 +206,7 @@ export default function IssueListScreen({ navigation }) {
 
         <Text style={tw`text-xs font-medium text-gray-400 mb-2`}>Inspeksi Terakhir: {new Date(item.timestamp).toLocaleString('id-ID')}</Text>
 
-        <View style={tw`mt-2 ${isResolved ? 'bg-blue-50 border-blue-200' : 'bg-red-100 border-red-200'} p-3 rounded-xl border`}>
+        <View style={tw`mt-2 ${isResolved ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'} p-3 rounded-xl border`}>
           <Text style={tw`${isResolved ? 'text-blue-800' : 'text-red-800'} font-bold mb-1 text-sm`}>Isu Ditemukan:</Text>
           {item.items && item.items.filter(i => !i.isGood).map((issue, idx) => (
             <Text key={idx} style={tw`${isResolved ? 'text-blue-700' : 'text-red-700'} text-xs my-1 font-medium`}>• {issue.name}</Text>
@@ -214,13 +214,20 @@ export default function IssueListScreen({ navigation }) {
         </View>
 
         {isResolved && (
-          <View style={tw`mt-3 bg-white p-2.5 rounded-xl border border-gray-100`}>
-            <Text style={tw`text-gray-600 text-xs mb-0.5`}>Diselesaikan oleh: <Text style={tw`font-bold text-gray-800`}>{item.resolvedBy || '-'}</Text></Text>
-            {item.resolvedAt && (
-              <Text style={tw`text-gray-500 text-[10px]`}>{new Date(item.resolvedAt).toLocaleString('id-ID')}</Text>
-            )}
+          <View style={tw`mt-3 bg-white p-3 rounded-xl border border-gray-100 flex-row justify-between items-center`}>
+            <View>
+              <Text style={tw`text-gray-600 text-xs mb-0.5`}>Diselesaikan oleh: <Text style={tw`font-bold text-gray-800`}>{item.resolvedBy || '-'}</Text></Text>
+              {item.resolvedAt && (
+                <Text style={tw`text-gray-500 text-[10px]`}>{new Date(item.resolvedAt).toLocaleString('id-ID')}</Text>
+              )}
+            </View>
           </View>
         )}
+        
+        {/* Footer (Lihat Detail) to match HistoryScreen */}
+        <View style={tw`flex-row items-center justify-end mt-3 pt-3 border-t border-gray-100`}>
+          <Text style={tw`text-[#0055A5] font-bold text-xs`}>Lihat Detail & Preview {'>'}</Text>
+        </View>
       </TouchableOpacity>
     );
   };
