@@ -10,7 +10,7 @@ export const CUSTOM_API_URL_KEY = '@custom_server_url';
 export const getDefaultApiUrl = () => {
   // Prioritas 1: Environment variable (dari .env)
   if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
+    return process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '');
   }
   let host = 'localhost';
   try {
@@ -44,12 +44,14 @@ export const loadSavedApiUrl = async () => {
     const saved = await AsyncStorage.getItem(CUSTOM_API_URL_KEY);
     if (saved && saved.trim()) {
       API_URL = saved.trim().replace(/\/+$/, '');
+      console.log(`[DIAGNOSTIC] loadSavedApiUrl() -> using CUSTOM_API_URL: ${API_URL}`);
       return API_URL;
     }
   } catch (e) {
     console.warn('Gagal memuat saved API_URL:', e);
   }
   API_URL = getDefaultApiUrl();
+  console.log(`[DIAGNOSTIC] loadSavedApiUrl() -> using default: ${API_URL}`);
   return API_URL;
 };
 
