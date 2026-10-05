@@ -261,56 +261,49 @@ export default function IssueListScreen({ navigation }) {
             navigation={navigation}
           />
 
-          {/* HEADER CARD */}
-          <View style={tw`px-4 md:px-6 pt-4 pb-2 z-10 bg-[#F4F7FA]`}>
-            <View style={tw`bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-gray-100`}>
-              
-              {/* Title & Description */}
-              <Text style={tw`text-xl md:text-2xl font-black text-[#003366] tracking-tight mb-1`}>Isu Ditemukan</Text>
-              <Text style={tw`text-xs md:text-sm text-gray-500 font-medium mb-5`}>Pantau dan kelola isu kendaraan</Text>
-
-              {/* Search Bar */}
-              <View style={tw`flex-row items-center bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 mb-4`}>
-                <Ionicons name="search-outline" size={20} color="#6B7280" />
-                <TextInput
-                  style={[tw`flex-1 ml-3 text-sm text-gray-800`, Platform.OS === 'web' ? { outline: 'none' } : {}]}
-                  placeholder="Cari No. Polisi atau Nama AMT..."
-                  placeholderTextColor="#9CA3AF"
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                />
-                {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => setSearchQuery('')} style={tw`p-1`}>
-                    <Ionicons name="close-circle" size={18} color="#9CA3AF" />
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Filter Pills */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={tw`flex-row items-center gap-3`}>
-                <TouchableOpacity
-                  style={tw`flex-row items-center px-4 py-2.5 rounded-full border ${issueFilter === 'current' ? 'bg-[#0055A5] border-[#0055A5] shadow-sm' : 'bg-white border-gray-200'}`}
-                  onPress={() => setIssueFilter('current')}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="warning-outline" size={16} color={issueFilter === 'current' ? 'white' : '#6B7280'} style={tw`mr-2`} />
-                  <Text style={tw`font-bold text-xs ${issueFilter === 'current' ? 'text-white' : 'text-[#6B7280]'}`}>
-                    Isu Terkini{issueFilter === 'current' ? `  ${filteredIssues.length}` : ''}
-                  </Text>
+          {/* SEARCH & FILTER SECTION */}
+          <View style={tw`px-4 md:px-6 pt-6 pb-2 z-10`}>
+            {/* Search Bar */}
+            <View style={tw`flex-row items-center bg-white border border-gray-200 rounded-2xl px-4 py-3 mb-4 shadow-sm`}>
+              <Ionicons name="search-outline" size={20} color="#6B7280" />
+              <TextInput
+                style={[tw`flex-1 ml-3 text-sm text-gray-800`, Platform.OS === 'web' ? { outline: 'none' } : {}]}
+                placeholder="Cari No. Polisi atau Nama AMT..."
+                placeholderTextColor="#9CA3AF"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')} style={tw`p-1`}>
+                  <Ionicons name="close-circle" size={18} color="#9CA3AF" />
                 </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={tw`flex-row items-center px-4 py-2.5 rounded-full border ${issueFilter === 'all' ? 'bg-[#0055A5] border-[#0055A5] shadow-sm' : 'bg-white border-gray-200'}`}
-                  onPress={() => setIssueFilter('all')}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="layers-outline" size={16} color={issueFilter === 'all' ? 'white' : '#6B7280'} style={tw`mr-2`} />
-                  <Text style={tw`font-bold text-xs ${issueFilter === 'all' ? 'text-white' : 'text-[#6B7280]'}`}>
-                    Semua Isu{issueFilter === 'all' ? `  ${filteredIssues.length}` : ''}
-                  </Text>
-                </TouchableOpacity>
-              </ScrollView>
+              )}
             </View>
+
+            {/* Filter Pills */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={tw`flex-row items-center gap-3`}>
+              <TouchableOpacity
+                style={tw`flex-row items-center px-4 py-2.5 rounded-full border ${issueFilter === 'current' ? 'bg-[#0055A5] border-[#0055A5] shadow-sm' : 'bg-white border-gray-200'}`}
+                onPress={() => setIssueFilter('current')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="warning-outline" size={16} color={issueFilter === 'current' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                <Text style={tw`font-bold text-xs ${issueFilter === 'current' ? 'text-white' : 'text-[#6B7280]'}`}>
+                  Isu Terkini{issueFilter === 'current' ? `  ${filteredIssues.length}` : ''}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={tw`flex-row items-center px-4 py-2.5 rounded-full border ${issueFilter === 'all' ? 'bg-[#0055A5] border-[#0055A5] shadow-sm' : 'bg-white border-gray-200'}`}
+                onPress={() => setIssueFilter('all')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="layers-outline" size={16} color={issueFilter === 'all' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                <Text style={tw`font-bold text-xs ${issueFilter === 'all' ? 'text-white' : 'text-[#6B7280]'}`}>
+                  Semua Isu{issueFilter === 'all' ? `  ${filteredIssues.length}` : ''}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
 
           {loading ? (
