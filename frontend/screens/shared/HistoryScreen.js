@@ -31,7 +31,6 @@ export default function HistoryScreen({ route, navigation }) {
   // Filter states (applied)
   const [searchQuery, setSearchQuery] = useState(route?.params?.noPolisi || '');
   const [selectedStatus, setSelectedStatus] = useState('Semua');
-  const [selectedShift, setSelectedShift] = useState('Semua');
   const [selectedMonth, setSelectedMonth] = useState('Semua');
   const [selectedYear, setSelectedYear] = useState('Semua');
   const defaultDateObj = new Date();
@@ -45,7 +44,6 @@ export default function HistoryScreen({ route, navigation }) {
 
   // Temp filter states (inside modal, only applied on TERAPKAN)
   const [tempStatus, setTempStatus] = useState('Semua');
-  const [tempShift, setTempShift] = useState('Semua');
   const [tempMonth, setTempMonth] = useState('Semua');
   const [tempYear, setTempYear] = useState('Semua');
   const [isLogoutVisible, setIsLogoutVisible] = useState(false);
@@ -290,7 +288,6 @@ export default function HistoryScreen({ route, navigation }) {
       const token = await AsyncStorage.getItem('token');
       let queryParams = `?token=${token}`;
       if (selectedStatus && selectedStatus !== 'Semua') queryParams += `&status=${selectedStatus}`;
-      if (selectedShift && selectedShift !== 'Semua') queryParams += `&shift=${selectedShift}`;
       if (selectedMonth && selectedMonth !== 'Semua') queryParams += `&month=${selectedMonth}`;
       if (selectedYear && selectedYear !== 'Semua') queryParams += `&year=${selectedYear}`;
       if (startDate && endDate) {
@@ -374,7 +371,6 @@ export default function HistoryScreen({ route, navigation }) {
   const hasDateFilter = !!(startDate && endDate);
   const activeFilterCount = [
     selectedStatus !== 'Semua',
-    selectedShift !== 'Semua',
     selectedMonth !== 'Semua',
     selectedYear !== 'Semua',
     hasDateFilter
@@ -383,7 +379,6 @@ export default function HistoryScreen({ route, navigation }) {
   const openFilterModal = () => {
     // Sync temp states from current applied states
     setTempStatus(selectedStatus);
-    setTempShift(selectedShift);
     setTempMonth(selectedMonth);
     setTempYear(selectedYear);
     setTempStartDate(startDate);
@@ -415,7 +410,6 @@ export default function HistoryScreen({ route, navigation }) {
 
   const applyFilters = () => {
     setSelectedStatus(tempStatus);
-    setSelectedShift(tempShift);
     setSelectedMonth(tempMonth);
     setSelectedYear(tempYear);
     setStartDate(tempStartDate);
@@ -425,7 +419,6 @@ export default function HistoryScreen({ route, navigation }) {
 
   const resetTempFilters = () => {
     setTempStatus('Semua');
-    setTempShift('Semua');
     setTempMonth('Semua');
     setTempYear('Semua');
     setTempStartDate('');
@@ -435,7 +428,6 @@ export default function HistoryScreen({ route, navigation }) {
 
   const resetAllFilters = () => {
     setSelectedStatus('Semua');
-    setSelectedShift('Semua');
     setSelectedMonth('Semua');
     setSelectedYear('Semua');
     setStartDate('');
@@ -466,9 +458,6 @@ export default function HistoryScreen({ route, navigation }) {
     if (selectedStatus === 'Normal') matchesStatus = isNormal;
     if (selectedStatus === 'Isu') matchesStatus = !isNormal;
 
-    let matchesShift = true;
-    if (selectedShift !== 'Semua') matchesShift = item.shift === selectedShift;
-
     let matchesMonth = true;
     if (selectedMonth !== 'Semua') {
       const itemMonth = BULAN_LIST[new Date(item.timestamp).getMonth()];
@@ -487,7 +476,7 @@ export default function HistoryScreen({ route, navigation }) {
       matchesDateRange = itemDateStr >= startDate && itemDateStr <= endDate;
     }
 
-    return matchesSearch && matchesStatus && matchesShift && matchesMonth && matchesYear && matchesDateRange;
+    return matchesSearch && matchesStatus && matchesMonth && matchesYear && matchesDateRange;
   });
 
   const renderItem = ({ item }) => {
@@ -699,23 +688,6 @@ export default function HistoryScreen({ route, navigation }) {
                       </TouchableOpacity>
                     ))}
                   </View>
-
-                  {/* Shift Filter */}
-                  <Text style={tw`text-xs font-bold text-gray-500 mb-3 uppercase tracking-wider flex-row items-center`}>
-                    <Ionicons name="time" size={14} color="#9CA3AF" />  Shift
-                  </Text>
-                  <View style={tw`flex-row flex-wrap mb-5`}>
-                    {['Semua', 'Shift 1', 'Shift 2'].map(shift => (
-                      <TouchableOpacity
-                        key={shift}
-                        style={tw`px-4 py-2.5 rounded-full mr-2 mb-2 border ${tempShift === shift ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-transparent border-gray-300'}`}
-                        onPress={() => setTempShift(shift)}
-                      >
-                        <Text style={tw`text-sm font-bold ${tempShift === shift ? 'text-white' : 'text-gray-600'}`}>{shift}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
 
                   {/* Rentang Waktu Cepat (Banking App Style) */}
                   <Text style={tw`text-xs font-bold text-gray-500 mb-3 uppercase tracking-wider flex-row items-center`}>
