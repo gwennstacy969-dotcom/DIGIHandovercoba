@@ -281,27 +281,29 @@ export default function IssueListScreen({ navigation }) {
             </View>
 
             {/* Filter Pills */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={tw`flex-row items-center gap-3`}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={tw`flex-row`}>
               <TouchableOpacity
-                style={tw`flex-row items-center px-4 py-2.5 rounded-full border ${issueFilter === 'current' ? 'bg-[#0055A5] border-[#0055A5] shadow-sm' : 'bg-white border-gray-200'}`}
+                style={tw`px-4 py-2 rounded-full mr-2 border ${issueFilter === 'current' ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-white border-gray-200'}`}
                 onPress={() => setIssueFilter('current')}
-                activeOpacity={0.8}
               >
-                <Ionicons name="warning-outline" size={16} color={issueFilter === 'current' ? 'white' : '#6B7280'} style={tw`mr-2`} />
-                <Text style={tw`font-bold text-xs ${issueFilter === 'current' ? 'text-white' : 'text-[#6B7280]'}`}>
-                  Isu Terkini{issueFilter === 'current' ? `  ${filteredIssues.length}` : ''}
-                </Text>
+                <View style={tw`flex-row items-center`}>
+                  <Ionicons name="warning-outline" size={16} color={issueFilter === 'current' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                  <Text style={tw`text-xs font-bold ${issueFilter === 'current' ? 'text-white' : 'text-gray-500'}`}>
+                    Isu Terkini{issueFilter === 'current' ? `  ${filteredIssues.length}` : ''}
+                  </Text>
+                </View>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={tw`flex-row items-center px-4 py-2.5 rounded-full border ${issueFilter === 'all' ? 'bg-[#0055A5] border-[#0055A5] shadow-sm' : 'bg-white border-gray-200'}`}
+                style={tw`px-4 py-2 rounded-full mr-4 border ${issueFilter === 'all' ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-white border-gray-200'}`}
                 onPress={() => setIssueFilter('all')}
-                activeOpacity={0.8}
               >
-                <Ionicons name="layers-outline" size={16} color={issueFilter === 'all' ? 'white' : '#6B7280'} style={tw`mr-2`} />
-                <Text style={tw`font-bold text-xs ${issueFilter === 'all' ? 'text-white' : 'text-[#6B7280]'}`}>
-                  Semua Isu{issueFilter === 'all' ? `  ${filteredIssues.length}` : ''}
-                </Text>
+                <View style={tw`flex-row items-center`}>
+                  <Ionicons name="layers-outline" size={16} color={issueFilter === 'all' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                  <Text style={tw`text-xs font-bold ${issueFilter === 'all' ? 'text-white' : 'text-gray-500'}`}>
+                    Semua Isu{issueFilter === 'all' ? `  ${filteredIssues.length}` : ''}
+                  </Text>
+                </View>
               </TouchableOpacity>
             </ScrollView>
           </View>
