@@ -99,13 +99,15 @@ const getHandoverCode = (h, handoverNoMap, fallbackIdx = 1) => {
  */
 const exportExcel = async (req, res) => {
   try {
-    const { status, shift, startDate, endDate, handoverId, id, search, q } = req.query;
+    const { status, shift, month, year, startDate, endDate, handoverId, id, search, q } = req.query;
 
     if (!req.user || (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN')) {
       return res.status(403).json({ error: 'Akses ditolak: Hanya Admin yang dapat mengekspor laporan' });
     }
 
     let where = {};
+    if (!where.AND) where.AND = [];
+    
     const targetId = handoverId || id;
     if (targetId) {
       where.id = targetId;
@@ -120,38 +122,62 @@ const exportExcel = async (req, res) => {
         where.status = status;
       }
     }
+    
     if (shift && shift !== 'Semua') {
       where.shift = shift;
     }
+
+    let dateFilters = [];
     if (startDate && endDate) {
       const start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
-      where.timestamp = {
-        gte: start,
-        lte: end
-      };
+      dateFilters.push({ timestamp: { gte: start, lte: end } });
     }
 
-    const searchQuery = (search || q || '').trim();
-    if (searchQuery) {
-      where.OR = [
-        { noPolisi: { contains: searchQuery } },
-        { amt1: { contains: searchQuery } },
-        { amt2: { contains: searchQuery } },
-        { id: { contains: searchQuery } },
-        { notes: { contains: searchQuery } },
-        { user: { name: { contains: searchQuery } } }
-      ];
+    const monthList = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    if (year && year !== 'Semua') {
+      const yearInt = parseInt(year);
+      if (month && month !== 'Semua') {
+        const monthIndex = monthList.indexOf(month);
+        if (monthIndex !== -1) {
+          const startMonth = new Date(yearInt, monthIndex, 1);
+          const endMonth = new Date(yearInt, monthIndex + 1, 0, 23, 59, 59, 999);
+          dateFilters.push({ timestamp: { gte: startMonth, lte: endMonth } });
+        }
+      } else {
+        const startYear = new Date(yearInt, 0, 1);
+        const endYear = new Date(yearInt, 11, 31, 23, 59, 59, 999);
+        dateFilters.push({ timestamp: { gte: startYear, lte: endYear } });
+      }
+    } else if (month && month !== 'Semua') {
+      const monthIndex = monthList.indexOf(month);
+      if (monthIndex !== -1) {
+        const monthOrs = [];
+        const currentYear = new Date().getFullYear();
+        for (let y = 2020; y <= currentYear + 5; y++) {
+          const startMonth = new Date(y, monthIndex, 1);
+          const endMonth = new Date(y, monthIndex + 1, 0, 23, 59, 59, 999);
+          monthOrs.push({ timestamp: { gte: startMonth, lte: endMonth } });
+        }
+        dateFilters.push({ OR: monthOrs });
+      }
     }
 
-    // Abaikan sesi dummy NOT_STARTED jika tidak ada filter status khusus
+    if (dateFilters.length > 0) {
+      where.AND.push(...dateFilters);
+    }
+
     if (!where.status) {
       where.status = { not: 'NOT_STARTED' };
     }
 
-    const handovers = await prisma.handover.findMany({
+    if (where.AND && where.AND.length === 0) {
+      delete where.AND;
+    }
+
+    let handovers = await prisma.handover.findMany({
       where: where,
       orderBy: { timestamp: 'desc' },
       include: {
@@ -160,6 +186,20 @@ const exportExcel = async (req, res) => {
         issue: true
       }
     });
+
+    const searchQuery = (search || q || '').trim().toLowerCase();
+    if (searchQuery) {
+      handovers = handovers.filter(item => {
+        const dateStr = new Date(item.timestamp).toLocaleString('id-ID');
+        return (
+          (item.noPolisi && item.noPolisi.toLowerCase().includes(searchQuery)) ||
+          (item.user && item.user.name && item.user.name.toLowerCase().includes(searchQuery)) ||
+          (item.amt1 && item.amt1.toLowerCase().includes(searchQuery)) ||
+          (item.amt2 && item.amt2.toLowerCase().includes(searchQuery)) ||
+          dateStr.toLowerCase().includes(searchQuery)
+        );
+      });
+    }
 
     let handoverNoMap = new Map();
     try {
@@ -197,13 +237,19 @@ const exportExcel = async (req, res) => {
     // Subheader Info row
     reportSheet.mergeCells('A3:T3');
     const subTitleCell = reportSheet.getCell('A3');
-    let infoPeriode = 'Semua Periode Data Handover';
-    if (startDate && endDate) {
-      infoPeriode = `Periode: ${startDate} s.d. ${endDate}`;
-    } else if (isSingle) {
+    let filterParts = [];
+    if (status && status !== 'Semua') filterParts.push(`Status: ${status}`);
+    if (shift && shift !== 'Semua') filterParts.push(`Shift: ${shift}`);
+    if (month && month !== 'Semua') filterParts.push(`Bulan: ${month}`);
+    if (year && year !== 'Semua') filterParts.push(`Tahun: ${year}`);
+    if (startDate && endDate) filterParts.push(`Periode: ${startDate} s.d. ${endDate}`);
+    if (searchQuery) filterParts.push(`Pencarian: ${searchQuery}`);
+
+    let infoPeriode = filterParts.length > 0 ? `Filter Data => ${filterParts.join(' | ')}` : 'Semua Data';
+    if (isSingle) {
       infoPeriode = `Laporan Tunggal Unit Handover ID: ${getHandoverCode(handovers[0], handoverNoMap, 1)}`;
     }
-    subTitleCell.value = `${infoPeriode} | Waktu Ekspor: ${formatDateIndo(new Date())} | Oleh: ${req.user.name} (${req.user.role})`;
+    subTitleCell.value = `${infoPeriode} | Total: ${handovers.length} Data | Waktu Ekspor: ${formatDateIndo(new Date())} | Oleh: ${req.user.name} (${req.user.role})`;
     subTitleCell.font = { italic: true, size: 9, color: { argb: 'FF333333' } };
     subTitleCell.alignment = { vertical: 'middle', horizontal: 'center' };
     reportSheet.getRow(3).height = 20;
@@ -642,7 +688,18 @@ const exportExcel = async (req, res) => {
     if (isSingle) {
       downloadFilename = `Handover_${handovers[0]?.noPolisi || 'Report'}_${getHandoverCode(handovers[0], handoverNoMap, 1)}.xlsx`;
     } else {
-      downloadFilename = `Laporan_Handover_Pertamina_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      let parts = [];
+      if (status && status !== 'Semua') parts.push(status);
+      if (shift && shift !== 'Semua') parts.push(shift.replace(/\s/g, ''));
+      if (month && month !== 'Semua') parts.push(month);
+      if (year && year !== 'Semua') parts.push(year);
+      if (startDate && endDate) parts.push(`${startDate}_${endDate}`);
+      if (searchQuery) parts.push(`Search_${searchQuery}`);
+      if (parts.length > 0) {
+        downloadFilename = `Laporan_Handover_${parts.join('_')}.xlsx`;
+      } else {
+        downloadFilename = `Laporan_Handover_Pertamina_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      }
     }
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -675,13 +732,15 @@ const exportExcel = async (req, res) => {
  */
 const exportPdf = async (req, res) => {
   try {
-    const { status, shift, startDate, endDate, handoverId, id, search, q } = req.query;
+    const { status, shift, month, year, startDate, endDate, handoverId, id, search, q } = req.query;
 
     if (!req.user || (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN')) {
       return res.status(403).json({ error: 'Akses ditolak: Hanya Admin yang dapat mengekspor laporan' });
     }
 
     let where = {};
+    if (!where.AND) where.AND = [];
+    
     const targetId = handoverId || id;
     if (targetId) {
       where.id = targetId;
@@ -696,37 +755,62 @@ const exportPdf = async (req, res) => {
         where.status = status;
       }
     }
+    
     if (shift && shift !== 'Semua') {
       where.shift = shift;
     }
+
+    let dateFilters = [];
     if (startDate && endDate) {
       const start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
-      where.timestamp = {
-        gte: start,
-        lte: end
-      };
+      dateFilters.push({ timestamp: { gte: start, lte: end } });
     }
 
-    const searchQuery = (search || q || '').trim();
-    if (searchQuery) {
-      where.OR = [
-        { noPolisi: { contains: searchQuery } },
-        { amt1: { contains: searchQuery } },
-        { amt2: { contains: searchQuery } },
-        { id: { contains: searchQuery } },
-        { notes: { contains: searchQuery } },
-        { user: { name: { contains: searchQuery } } }
-      ];
+    const monthList = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    if (year && year !== 'Semua') {
+      const yearInt = parseInt(year);
+      if (month && month !== 'Semua') {
+        const monthIndex = monthList.indexOf(month);
+        if (monthIndex !== -1) {
+          const startMonth = new Date(yearInt, monthIndex, 1);
+          const endMonth = new Date(yearInt, monthIndex + 1, 0, 23, 59, 59, 999);
+          dateFilters.push({ timestamp: { gte: startMonth, lte: endMonth } });
+        }
+      } else {
+        const startYear = new Date(yearInt, 0, 1);
+        const endYear = new Date(yearInt, 11, 31, 23, 59, 59, 999);
+        dateFilters.push({ timestamp: { gte: startYear, lte: endYear } });
+      }
+    } else if (month && month !== 'Semua') {
+      const monthIndex = monthList.indexOf(month);
+      if (monthIndex !== -1) {
+        const monthOrs = [];
+        const currentYear = new Date().getFullYear();
+        for (let y = 2020; y <= currentYear + 5; y++) {
+          const startMonth = new Date(y, monthIndex, 1);
+          const endMonth = new Date(y, monthIndex + 1, 0, 23, 59, 59, 999);
+          monthOrs.push({ timestamp: { gte: startMonth, lte: endMonth } });
+        }
+        dateFilters.push({ OR: monthOrs });
+      }
+    }
+
+    if (dateFilters.length > 0) {
+      where.AND.push(...dateFilters);
     }
 
     if (!where.status) {
       where.status = { not: 'NOT_STARTED' };
     }
 
-    const handovers = await prisma.handover.findMany({
+    if (where.AND && where.AND.length === 0) {
+      delete where.AND;
+    }
+
+    let handovers = await prisma.handover.findMany({
       where: where,
       orderBy: { timestamp: 'desc' },
       include: {
@@ -735,6 +819,20 @@ const exportPdf = async (req, res) => {
         issue: true
       }
     });
+
+    const searchQuery = (search || q || '').trim().toLowerCase();
+    if (searchQuery) {
+      handovers = handovers.filter(item => {
+        const dateStr = new Date(item.timestamp).toLocaleString('id-ID');
+        return (
+          (item.noPolisi && item.noPolisi.toLowerCase().includes(searchQuery)) ||
+          (item.user && item.user.name && item.user.name.toLowerCase().includes(searchQuery)) ||
+          (item.amt1 && item.amt1.toLowerCase().includes(searchQuery)) ||
+          (item.amt2 && item.amt2.toLowerCase().includes(searchQuery)) ||
+          dateStr.toLowerCase().includes(searchQuery)
+        );
+      });
+    }
 
     let handoverNoMap = new Map();
     try {
@@ -751,7 +849,18 @@ const exportPdf = async (req, res) => {
     if (isSingle) {
       downloadFilename = `Handover_${handovers[0]?.noPolisi || 'Report'}_${getHandoverCode(handovers[0], handoverNoMap, 1)}.pdf`;
     } else {
-      downloadFilename = `Laporan_Handover_Pertamina_${new Date().toISOString().slice(0, 10)}.pdf`;
+      let parts = [];
+      if (status && status !== 'Semua') parts.push(status);
+      if (shift && shift !== 'Semua') parts.push(shift.replace(/\s/g, ''));
+      if (month && month !== 'Semua') parts.push(month);
+      if (year && year !== 'Semua') parts.push(year);
+      if (startDate && endDate) parts.push(`${startDate}_${endDate}`);
+      if (searchQuery) parts.push(`Search_${searchQuery}`);
+      if (parts.length > 0) {
+        downloadFilename = `Laporan_Handover_${parts.join('_')}.pdf`;
+      } else {
+        downloadFilename = `Laporan_Handover_Pertamina_${new Date().toISOString().slice(0, 10)}.pdf`;
+      }
     }
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -797,11 +906,19 @@ const exportPdf = async (req, res) => {
     doc.fillColor('gray').font('Helvetica').fontSize(9).text('Fuel Terminal Maos • Sistem Handover & Checklist Inspeksi Digital Terintegrasi', 30, 84);
     doc.moveDown(1.5);
 
-    let periodStr = formatDateIndo(new Date());
-    if (startDate && endDate) {
-      periodStr = `${startDate} s.d. ${endDate}`;
-    } else if (isSingle && handovers[0]) {
-      periodStr = `${formatDateIndo(handovers[0].timestamp)}`;
+    let filterPartsPdf = [];
+    if (status && status !== 'Semua') filterPartsPdf.push(`Status: ${status}`);
+    if (shift && shift !== 'Semua') filterPartsPdf.push(`Shift: ${shift}`);
+    if (month && month !== 'Semua') filterPartsPdf.push(`Bulan: ${month}`);
+    if (year && year !== 'Semua') filterPartsPdf.push(`Tahun: ${year}`);
+    if (startDate && endDate) filterPartsPdf.push(`Periode: ${startDate} s.d. ${endDate}`);
+    if (searchQuery) filterPartsPdf.push(`Pencarian: ${searchQuery}`);
+    
+    let periodStr = filterPartsPdf.length > 0 ? filterPartsPdf.join(' | ') : 'Semua Data';
+    periodStr += ` (Total: ${totalHandover} Data)`;
+
+    if (isSingle && handovers[0]) {
+      periodStr = `${formatDateIndo(handovers[0].timestamp)} (Total: 1 Data)`;
     }
 
     const tableHeader = {

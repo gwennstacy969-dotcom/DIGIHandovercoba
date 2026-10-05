@@ -232,6 +232,8 @@ export default function HistoryScreen({ route, navigation }) {
       let queryParams = `?token=${token}`;
       if (selectedStatus && selectedStatus !== 'Semua') queryParams += `&status=${selectedStatus}`;
       if (selectedShift && selectedShift !== 'Semua') queryParams += `&shift=${selectedShift}`;
+      if (selectedMonth && selectedMonth !== 'Semua') queryParams += `&month=${selectedMonth}`;
+      if (selectedYear && selectedYear !== 'Semua') queryParams += `&year=${selectedYear}`;
       if (startDate && endDate) {
         queryParams += `&startDate=${startDate}&endDate=${endDate}`;
       }
@@ -289,6 +291,8 @@ export default function HistoryScreen({ route, navigation }) {
       let queryParams = `?token=${token}`;
       if (selectedStatus && selectedStatus !== 'Semua') queryParams += `&status=${selectedStatus}`;
       if (selectedShift && selectedShift !== 'Semua') queryParams += `&shift=${selectedShift}`;
+      if (selectedMonth && selectedMonth !== 'Semua') queryParams += `&month=${selectedMonth}`;
+      if (selectedYear && selectedYear !== 'Semua') queryParams += `&year=${selectedYear}`;
       if (startDate && endDate) {
         queryParams += `&startDate=${startDate}&endDate=${endDate}`;
       }
