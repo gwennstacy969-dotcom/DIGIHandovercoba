@@ -3,7 +3,7 @@ import WebNavbar from '../../components/WebNavbar';
 import Toast from 'react-native-toast-message';
 import React, { useState, useEffect } from 'react';
 import { API_URL } from '../../config';
-import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, ActivityIndicator, TextInput, ScrollView } from 'react-native';
 import tw from 'twrnc';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,6 +22,8 @@ import { handleLogoutAndReset } from '../../utils/authHelper';
 export default function IssueListScreen({ navigation }) {
   useRoleGuard(['SUPER_ADMIN', 'ADMIN', 'PENGAWAS', 'AMT']);
   const [issues, setIssues] = useState([]);
+  const [filteredIssues, setFilteredIssues] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [issueFilter, setIssueFilter] = useState('current');
   const [screenWidth, setScreenWidth] = useState(Dimensions.get('window').width);
@@ -87,6 +89,26 @@ export default function IssueListScreen({ navigation }) {
   useEffect(() => {
     fetchIssues();
   }, [issueFilter]);
+
+  // Handle Search Filtering
+  useEffect(() => {
+    if (!issues) return;
+    if (!searchQuery.trim()) {
+      setFilteredIssues(issues);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase();
+    const filtered = issues.filter(item => {
+      const noPolisiMatch = item.noPolisi && item.noPolisi.toLowerCase().includes(query);
+      const userMatch = item.user?.name && item.user.name.toLowerCase().includes(query);
+      const amt1Match = item.shiftDetails?.amt1 && item.shiftDetails.amt1.toLowerCase().includes(query);
+      const amt2Match = item.shiftDetails?.amt2 && item.shiftDetails.amt2.toLowerCase().includes(query);
+      return noPolisiMatch || userMatch || amt1Match || amt2Match;
+    });
+
+    setFilteredIssues(filtered);
+  }, [searchQuery, issues]);
 
   const fetchIssues = async () => {
     setLoading(true);
@@ -239,33 +261,57 @@ export default function IssueListScreen({ navigation }) {
             navigation={navigation}
           />
 
-          {/* Segmented Filter */}
-          <View style={tw`px-6 pt-4 pb-2 z-10 bg-[#F4F7FA]`}>
-            <View style={tw`flex-row bg-white rounded-[20px] p-1.5 shadow-sm border border-gray-100`}>
-              <TouchableOpacity
-                style={[tw`flex-1 py-3 rounded-2xl flex-row justify-center items-center`, issueFilter === 'current' ? tw`bg-[#0055A5] shadow-sm shadow-blue-500/20` : tw`bg-transparent`]}
-                onPress={() => setIssueFilter('current')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="warning" size={18} color={issueFilter === 'current' ? 'white' : '#64748B'} style={tw`mr-2`} />
-                <Text style={tw`font-black text-xs ${issueFilter === 'current' ? 'text-white' : 'text-gray-500'} tracking-wide`}>ISU TERKINI</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[tw`flex-1 py-3 rounded-2xl flex-row justify-center items-center`, issueFilter === 'all' ? tw`bg-[#0055A5] shadow-sm shadow-blue-500/20` : tw`bg-transparent`]}
-                onPress={() => setIssueFilter('all')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="list" size={18} color={issueFilter === 'all' ? 'white' : '#64748B'} style={tw`mr-2`} />
-                <Text style={tw`font-black text-xs ${issueFilter === 'all' ? 'text-white' : 'text-gray-500'} tracking-wide`}>SEMUA ISU</Text>
-              </TouchableOpacity>
+          {/* HEADER CARD */}
+          <View style={tw`px-4 md:px-6 pt-4 pb-2 z-10 bg-[#F4F7FA]`}>
+            <View style={tw`bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-gray-100`}>
+              
+              {/* Title & Description */}
+              <Text style={tw`text-xl md:text-2xl font-black text-[#003366] tracking-tight mb-1`}>Isu Ditemukan</Text>
+              <Text style={tw`text-xs md:text-sm text-gray-500 font-medium mb-5`}>Pantau dan kelola isu kendaraan</Text>
+
+              {/* Search Bar */}
+              <View style={tw`flex-row items-center bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 mb-4`}>
+                <Ionicons name="search-outline" size={20} color="#6B7280" />
+                <TextInput
+                  style={[tw`flex-1 ml-3 text-sm text-gray-800`, Platform.OS === 'web' ? { outline: 'none' } : {}]}
+                  placeholder="Cari No. Polisi atau Nama AMT..."
+                  placeholderTextColor="#9CA3AF"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')} style={tw`p-1`}>
+                    <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Filter Pills */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={tw`flex-row items-center gap-3`}>
+                <TouchableOpacity
+                  style={tw`flex-row items-center px-4 py-2.5 rounded-full border ${issueFilter === 'current' ? 'bg-[#0055A5] border-[#0055A5] shadow-sm' : 'bg-white border-gray-200'}`}
+                  onPress={() => setIssueFilter('current')}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="warning-outline" size={16} color={issueFilter === 'current' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                  <Text style={tw`font-bold text-xs ${issueFilter === 'current' ? 'text-white' : 'text-[#6B7280]'}`}>
+                    Isu Terkini{issueFilter === 'current' ? `  ${filteredIssues.length}` : ''}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={tw`flex-row items-center px-4 py-2.5 rounded-full border ${issueFilter === 'all' ? 'bg-[#0055A5] border-[#0055A5] shadow-sm' : 'bg-white border-gray-200'}`}
+                  onPress={() => setIssueFilter('all')}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="layers-outline" size={16} color={issueFilter === 'all' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                  <Text style={tw`font-bold text-xs ${issueFilter === 'all' ? 'text-white' : 'text-[#6B7280]'}`}>
+                    Semua Isu{issueFilter === 'all' ? `  ${filteredIssues.length}` : ''}
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
           </View>
-
-          {!loading && (
-            <Text style={tw`text-xs font-bold text-gray-400 px-6 pb-2`}>
-              Menampilkan {issues.length} {issueFilter === 'current' ? 'isu aktif' : 'riwayat isu'}
-            </Text>
-          )}
 
           {loading ? (
             <View style={tw`flex-1 justify-center items-center`}>
@@ -276,8 +322,8 @@ export default function IssueListScreen({ navigation }) {
             <FlatList key={numCols} numColumns={numCols} columnWrapperStyle={isLargeScreen ? tw`justify-start gap-4` : undefined}
               style={tw`flex-1`}
               contentContainerStyle={tw`px-6 pb-20 w-full max-w-7xl mx-auto pt-2`}
-            data={issues}
-            keyExtractor={(item) => item.id.toString()}
+            data={filteredIssues}
+            keyExtractor={(item) => item.id ? item.id.toString() : (item.issueId || Math.random()).toString()}
             renderItem={renderItem}
             initialNumToRender={Platform.OS === 'web' ? 100 : 20}
             maxToRenderPerBatch={Platform.OS === 'web' ? 50 : 20}
@@ -288,12 +334,16 @@ export default function IssueListScreen({ navigation }) {
               <View style={tw`items-center mt-20`}>
                 <Ionicons name={issueFilter === 'current' ? "checkmark-circle-outline" : "file-tray-outline"} size={60} color="#CBD5E1" />
                 <Text style={tw`text-center text-gray-600 font-black mt-4 text-xl`}>
-                  {issueFilter === 'current' ? "Tidak ada isu aktif" : "Belum ada riwayat isu"}
+                  {searchQuery.trim() !== '' 
+                    ? "Pencarian Tidak Ditemukan"
+                    : (issueFilter === 'current' ? "Tidak Ada Isu Terkini" : "Belum Ada Riwayat Isu")}
                 </Text>
-                <Text style={tw`text-center text-gray-400 font-medium mt-2 text-sm`}>
-                  {issueFilter === 'current' 
-                    ? "Semua kendaraan saat ini dalam kondisi terkendali." 
-                    : "Belum terdapat riwayat isu pada sistem."}
+                <Text style={tw`text-center text-gray-400 font-medium mt-2 text-sm max-w-[80%]`}>
+                  {searchQuery.trim() !== ''
+                    ? `Tidak ada hasil pencarian untuk "${searchQuery}". Coba kata kunci lain.`
+                    : (issueFilter === 'current' 
+                        ? "Semua kendaraan saat ini dalam kondisi terkendali." 
+                        : "Belum terdapat riwayat isu pada sistem.")}
                 </Text>
               </View>
             }
