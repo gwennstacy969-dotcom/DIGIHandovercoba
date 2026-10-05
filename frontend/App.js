@@ -82,6 +82,9 @@ export default function App() {
   const [initialRoute, setInitialRoute] = useState(null);
 
   useEffect(() => {
+    // Bypass ngrok browser warning page
+    axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
+
     // Interceptor global untuk membersihkan session jika token expired / unauthorized
     const interceptor = axios.interceptors.response.use(
       (response) => response,
