@@ -1,0 +1,308 @@
+openapi: 3.0.3
+info:
+  title: Pertamina HandoverApp API
+  description: >
+    API dokumentasi resmi untuk sistem digitalisasi serah terima (handover)
+    dan inspeksi armada truk tangki BBM PT Pertamina Patra Niaga.
+  version: 1.0.0
+  contact:
+    name: Tim Pengembang HandoverApp
+    email: support@pertamina.com
+
+servers:
+  - url: http://localhost:3000
+    description: Development Server
+  - url: https://api.handoverapp.pertamina.com
+    description: Production Server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: "admin"
+        password:
+          type: string
+          example: "admin123"
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Access token JWT
+        user:
+          type: object
+          properties:
+            id:
+              type: integer
+              example: 1
+            name:
+              type: string
+              example: "Super Admin Pertamina"
+            username:
+              type: string
+              example: "admin"
+            role:
+              type: string
+              enum: [SUPER_ADMIN, ADMIN, PENGAWAS, AMT, USER]
+              example: "SUPER_ADMIN"
+
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        noPolisi:
+          type: string
+          example: "B 9022 SFV"
+        barcode:
+          type: string
+          example: "B9022SFV"
+        brand:
+          type: string
+          example: "Hino"
+        status:
+          type: string
+          example: "Siap Operasi"
+
+    HandoverItem:
+      type: object
+      required:
+        - name
+        - isGood
+      properties:
+        name:
+          type: string
+          example: "Sistem Rem"
+        isGood:
+          type: boolean
+          example: true
+        notes:
+          type: string
+          example: "Kondisi rem angin normal"
+        photoUri:
+          type: string
+          nullable: true
+
+    CreateHandoverRequest:
+      type: object
+      required:
+        - vehicleId
+        - shift
+        - items
+      properties:
+        vehicleId:
+          type: integer
+          example: 1
+        shift:
+          type: string
+          enum: ["1", "2"]
+          example: "1"
+        amt1:
+          type: string
+          example: "Budi Santoso"
+        amt2:
+          type: string
+          example: "Agus Pratama"
+        type:
+          type: string
+          enum: [mulai, akhiri]
+          example: "mulai"
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HandoverItem'
+
+paths:
+  /api/auth/login:
+    post:
+      summary: Login pengguna (Semua Role)
+      tags:
+        - Autentikasi
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login berhasil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Kredensial tidak valid
+
+  /api/vehicles:
+    get:
+      summary: Mendapatkan daftar seluruh armada mobil tangki
+      tags:
+        - Kendaraan
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Daftar armada
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vehicle'
+
+  /api/workers:
+    get:
+      summary: Mendapatkan daftar seluruh pekerja AMT terdaftar
+      tags:
+        - Pekerja
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Daftar pekerja AMT
+
+  /api/handovers:
+    get:
+      summary: Mengambil riwayat serah terima (handover)
+      tags:
+        - Handover
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: shift
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Daftar riwayat handover
+
+    post:
+      summary: Mengirim laporan inspeksi & serah terima baru
+      tags:
+        - Handover
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateHandoverRequest'
+      responses:
+        '201':
+          description: Laporan handover berhasil dibuat
+
+  /api/issues:
+    get:
+      summary: Mendapatkan daftar kendaraan yang memiliki kendala / isu
+      tags:
+        - Isu & Perbaikan
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Daftar armada dengan isu terbuka
+
+  /api/issues/{id}/verify:
+    post:
+      summary: Evaluasi bukti perbaikan armada (Approve / Reject oleh Pengawas)
+      tags:
+        - Isu & Perbaikan
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [APPROVED, REJECTED]
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Hasil evaluasi berhasil disimpan
+
+  /api/reports/excel:
+    get:
+      summary: Ekspor laporan handover resmi ke format Excel (.xlsx)
+      tags:
+        - Laporan
+      parameters:
+        - in: query
+          name: token
+          schema:
+            type: string
+        - in: query
+          name: startDate
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: endDate
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Berkas Excel Laporan Handover Pertamina
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /api/reports/pdf:
+    get:
+      summary: Ekspor berita acara handover ke format PDF resmi
+      tags:
+        - Laporan
+      parameters:
+        - in: query
+          name: token
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Berkas PDF Berita Acara
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary

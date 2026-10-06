@@ -1,0 +1,503 @@
+{
+  "info": {
+    "name": "HandoverApp - Password Reset & Email Notifications",
+    "description": "API Collection untuk testing password reset dan email notifications",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Password Reset APIs",
+      "item": [
+        {
+          "name": "1. User Submit Password Reset Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@test.com\",\n  \"reason\": \"Saya lupa password saya karena laptop rusak\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/password-reset/submit",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "password-reset",
+                "submit"
+              ]
+            },
+            "description": "User submit permintaan reset password. Email akan dikirim ke admin dan notifikasi app muncul."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Admin Get Pending Requests",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/password-reset/pending?page=1&limit=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "password-reset",
+                "pending"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Admin melihat list pending password reset requests"
+          },
+          "response": []
+        },
+        {
+          "name": "3. Admin Verify & Approve Reset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": 1,\n  \"isApproved\": true,\n  \"notes\": \"Identitas sudah diverifikasi di kantor secara langsung. Password baru sudah diberikan.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/password-reset/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "password-reset",
+                "verify"
+              ]
+            },
+            "description": "Admin approve dan reset password user. Password baru di-generate dan dikirim via email ke user."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Admin Reject Reset Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": 1,\n  \"isApproved\": false,\n  \"notes\": \"Identitas tidak sesuai dengan data di sistem. Silakan datang ke kantor dengan KTP.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/password-reset/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "password-reset",
+                "verify"
+              ]
+            },
+            "description": "Admin reject password reset request dengan alasan tertentu."
+          },
+          "response": []
+        },
+        {
+          "name": "5. Get Password Reset History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{user_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/password-reset/history?userId=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "password-reset",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "User atau admin melihat riwayat password reset requests"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Finding Report Emails APIs",
+      "item": [
+        {
+          "name": "1. Create Finding Report (with Email)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{user_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"TEMUAN\",\n  \"location\": \"Jalan Ahmad Yani No. 123\",\n  \"description\": \"Ditemukan barang mencurigakan di pojok ruangan. Barangnya seperti tas plastik berisi benda tidak jelas. Sudah dilaporkan ke security.\",\n  \"severity\": \"HIGH\",\n  \"photoUrl\": \"https://example.com/photo/finding_123.jpg\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/findings/report",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "findings",
+                "report"
+              ]
+            },
+            "description": "User submit laporan temuan/blokir. Notifikasi akan dikirim ke app dan email admin."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Send Finding Email Notification",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"findingId\": 1,\n  \"photoUrl\": \"https://example.com/photo/finding_123.jpg\",\n  \"adminEmails\": [\"admin1@company.com\", \"admin2@company.com\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/notifications/send-finding-email",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "send-finding-email"
+              ]
+            },
+            "description": "Manual trigger untuk mengirim email notifikasi temuan ke admin (jika belum terkirim otomatis)"
+          },
+          "response": []
+        },
+        {
+          "name": "3. Get Email Notification Logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/logs?type=FINDING_REPORT&status=SENT&limit=20&page=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "FINDING_REPORT"
+                },
+                {
+                  "key": "status",
+                  "value": "SENT"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "Admin melihat log email yang telah dikirim"
+          },
+          "response": []
+        },
+        {
+          "name": "4. Get Failed Emails",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/logs?status=FAILED&retry=false",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "FAILED"
+                },
+                {
+                  "key": "retry",
+                  "value": "false"
+                }
+              ]
+            },
+            "description": "Admin melihat email yang gagal dikirim dan perlu retry"
+          },
+          "response": []
+        },
+        {
+          "name": "5. Retry Failed Email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"emailLogId\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/notifications/retry-email",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "retry-email"
+              ]
+            },
+            "description": "Retry mengirim email yang sebelumnya gagal"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login as User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@test.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Login sebagai user biasa. Copy token dan set di {{user_token}}"
+          },
+          "response": []
+        },
+        {
+          "name": "Login as Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@company.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Login sebagai admin. Copy token dan set di {{admin_token}}"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health Check & Monitoring",
+      "item": [
+        {
+          "name": "Server Health Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Check apakah server sedang running"
+          },
+          "response": []
+        },
+        {
+          "name": "API Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "status"
+              ]
+            },
+            "description": "Check status API dan service yang terhubung"
+          },
+          "response": []
+        },
+        {
+          "name": "Email Service Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/admin/email-status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "email-status"
+              ]
+            },
+            "description": "Check status email service dan delivery stats"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "user_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

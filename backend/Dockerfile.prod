@@ -1,0 +1,34 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies if needed for sharp or bcrypt
+RUN apk add --no-cache python3 make g++
+
+COPY package*.json ./
+COPY prisma ./prisma/
+
+RUN npm install
+
+COPY . .
+
+RUN npx prisma generate
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Ensure curl for healthchecks
+RUN apk add --no-cache curl
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/index.js ./index.js
+# If you have public or static folders, copy them here too
+# COPY --from=builder /app/barcodes ./barcodes
+
+EXPOSE 3000
+
+CMD ["npm", "start"]
