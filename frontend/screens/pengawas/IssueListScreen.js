@@ -3,21 +3,19 @@ import WebNavbar from '../../components/WebNavbar';
 import Toast from 'react-native-toast-message';
 import React, { useState, useEffect } from 'react';
 import { API_URL } from '../../config';
-import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, ActivityIndicator, TextInput, ScrollView } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, ActivityIndicator, TextInput, ScrollView, Dimensions } from 'react-native';
 import tw from 'twrnc';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import axios from 'axios';
+import { useRoleGuard } from '../../hooks/useRoleGuard';
+import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
+import { handleLogoutAndReset } from '../../utils/authHelper';
 
 const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
 
 const API_BASE = { toString: () => `${API_URL}/api` };
-
-const { Dimensions } = require('react-native');
-import { useRoleGuard } from '../../hooks/useRoleGuard';
-import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
-import { handleLogoutAndReset } from '../../utils/authHelper';
 
 export default function IssueListScreen({ navigation }) {
   useRoleGuard(['SUPER_ADMIN', 'ADMIN', 'PENGAWAS', 'AMT']);
