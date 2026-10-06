@@ -82,20 +82,17 @@ export default function LoginScreen({ navigation }) {
 
     setLoading(true);
     try {
-      const res = await axios.post(`${API_URL}/api/auth/login`, { username, password }, { timeout: 15000 });
+      const res = await axios.post(`${API_URL}/api/auth/login`, { username, password });
       const loggedInUser = res.data.user;
       const token = res.data.token;
       const refreshToken = res.data.refreshToken;
 
       if (loggedInUser && token) {
-        const itemsToStore = [
-          ['user', JSON.stringify(loggedInUser)],
-          ['token', token]
-        ];
+        await AsyncStorage.setItem('user', JSON.stringify(loggedInUser));
+        await AsyncStorage.setItem('token', token);
         if (refreshToken) {
-          itemsToStore.push(['refreshToken', refreshToken]);
+          await AsyncStorage.setItem('refreshToken', refreshToken);
         }
-        await AsyncStorage.multiSet(itemsToStore);
 
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { API_URL } from '../../config';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, StyleSheet, Image, ActivityIndicator, Dimensions, Platform, Linking } from 'react-native';
 import tw from 'twrnc';
@@ -60,126 +60,6 @@ const isAmt1Jabatan = (jbt) => {
   const upper = (jbt || '').toUpperCase();
   return upper.includes('AMT I') || upper.includes('AMT 1') || /\b(I|1)\b/.test(upper) || (!upper.includes('II') && !upper.includes('2'));
 };
-
-// Subkomponen Checklist yang di-memoize untuk menghindari re-render 50+ item sekaligus saat 1 tombol ditekan
-const ChecklistItemRow = React.memo(({
-  item,
-  index,
-  onSetStatus,
-  onUpdateCatatan,
-  onOpenCamera,
-  onRemovePhoto,
-  photoUri
-}) => {
-  const isBaik = item.status === 'BAIK';
-  const isRusak = item.status === 'RUSAK';
-  const optionLabels = getItemOptionLabels(item);
-
-  return (
-    <View style={tw`border-b border-gray-100 p-5 ${isRusak ? 'bg-red-50/50' : isBaik ? 'bg-green-50/30' : 'bg-white'}`}>
-      <View style={tw`flex-col`}>
-        <Text style={tw`text-gray-800 font-bold text-base mb-4 ${isRusak ? 'text-red-700' : ''}`}>{item.name}</Text>
-        <View style={tw`flex-row justify-between gap-3`}>
-          {/* Tombol BAIK (Warna solid hardware-accelerated agar respon klik 0ms instan) */}
-          <TouchableOpacity
-            style={tw`flex-1 rounded-xl py-3 px-2 items-center justify-center border shadow-sm ${
-              isBaik
-                ? 'bg-[#00A651] border-[#00A651]'
-                : 'bg-slate-100 border-slate-200'
-            }`}
-            activeOpacity={0.7}
-            onPress={() => onSetStatus(index, 'BAIK')}
-          >
-            <Text style={tw`font-extrabold text-sm ${isBaik ? 'text-white' : 'text-gray-500'}`} numberOfLines={1}>
-              {optionLabels.good}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Tombol RUSAK (Warna solid hardware-accelerated agar respon klik 0ms instan) */}
-          <TouchableOpacity
-            style={tw`flex-1 rounded-xl py-3 px-2 items-center justify-center border shadow-sm ${
-              isRusak
-                ? 'bg-[#ED1C24] border-[#ED1C24]'
-                : 'bg-slate-100 border-slate-200'
-            }`}
-            activeOpacity={0.7}
-            onPress={() => onSetStatus(index, 'RUSAK')}
-          >
-            <Text style={tw`font-extrabold text-sm ${isRusak ? 'text-white' : 'text-gray-500'}`} numberOfLines={1}>
-              {optionLabels.bad}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Form Tambahan Jika RUSAK (Langsung Minta Catatan, Severity otomatis dari setting Admin) */}
-      {isRusak && (
-        <View style={tw`mt-4 pt-4 border-t border-red-200`}>
-          <View style={tw`flex-row items-center mb-3 justify-between`}>
-            <Text style={tw`text-xs font-bold text-red-800 uppercase tracking-wider`}>Detail Kerusakan / Catatan:</Text>
-          </View>
-
-          <View style={tw`bg-white rounded-xl shadow-sm border border-red-100 p-1`}>
-            <TextInput
-              style={[tw`p-3 text-sm text-gray-800 font-medium`, { minHeight: 80, textAlignVertical: 'top' }]}
-              placeholder="Ketik detail kerusakan di sini... (Opsional)"
-              placeholderTextColor="#9CA3AF"
-              value={item.catatan || ''}
-              onChangeText={(text) => onUpdateCatatan(index, text)}
-              multiline
-              maxLength={500}
-            />
-          </View>
-
-          {/* Wajib Foto Kerusakan */}
-          {item.category === 'A' && (
-            <View style={tw`mt-4 items-start`}>
-              <Text style={tw`text-xs font-bold text-red-800 uppercase tracking-wider mb-2`}>* Foto Kerusakan (Wajib)</Text>
-              <View style={tw`relative`}>
-                <TouchableOpacity
-                  style={tw`w-32 h-32 bg-slate-50 rounded-2xl border-2 ${photoUri ? 'border-green-500 shadow-md' : 'border-dashed border-red-300'} justify-center items-center overflow-hidden`}
-                  onPress={() => onOpenCamera(`item_${index}`)}
-                >
-                  {photoUri ? (
-                    <>
-                      <Image source={{ uri: photoUri }} style={tw`w-full h-full`} resizeMode="cover" />
-                      <View style={tw`absolute inset-0 bg-black/20 justify-center items-center`}>
-                        <Ionicons name="checkmark-circle" size={32} color="white" />
-                      </View>
-                    </>
-                  ) : (
-                    <>
-                      <Ionicons name="camera" size={32} color="#DC2626" />
-                      <Text style={tw`text-xs text-red-600 mt-2 font-bold`}>Ambil Foto</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-
-                {photoUri && (
-                  <TouchableOpacity
-                    style={tw`absolute -top-2 -right-2 bg-red-600 rounded-full p-1.5 shadow-md z-10 border-2 border-white`}
-                    onPress={() => onRemovePhoto(`item_${index}`)}
-                  >
-                    <Ionicons name="trash-outline" size={16} color="white" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          )}
-        </View>
-      )}
-    </View>
-  );
-}, (prevProps, nextProps) => {
-  return (
-    prevProps.item.status === nextProps.item.status &&
-    prevProps.item.catatan === nextProps.item.catatan &&
-    prevProps.photoUri === nextProps.photoUri &&
-    prevProps.item.name === nextProps.item.name &&
-    prevProps.item.category === nextProps.item.category &&
-    prevProps.index === nextProps.index
-  );
-});
 
 export default function HandoverFormScreen({ route, navigation }) {
   const { noPolisi: initialNoPolisi, type, lastHandover } = route?.params || {};
@@ -251,13 +131,13 @@ export default function HandoverFormScreen({ route, navigation }) {
   // Checklist State (Mulai dari null/kosong)
   const [items, setItems] = useState([]);
 
-  // B5: Kelompokkan item checklist secara dinamis berdasarkan kategori beserta index aslinya
+  // B5: Kelompokkan item checklist secara dinamis berdasarkan kategori
   const categoryGroups = useMemo(() => {
     const groups = {};
-    items.forEach((item, index) => {
+    items.forEach(item => {
       const cat = item.category || 'A';
       if (!groups[cat]) groups[cat] = [];
-      groups[cat].push({ item, index });
+      groups[cat].push(item);
     });
     return groups;
   }, [items]);
@@ -481,30 +361,22 @@ export default function HandoverFormScreen({ route, navigation }) {
         return null;
       }
 
-      // Coba ambil lokasi terakhir (last known) terlebih dahulu agar instan (0 ms)
-      let freshLoc = await Location.getLastKnownPositionAsync().catch(() => null);
+      // Coba ambil lokasi terakhir (last known) jika masih baru (1 menit)
+      let freshLoc = await Location.getLastKnownPositionAsync({
+        maxAge: 60000 
+      }).catch(() => null);
+
+      if (!freshLoc) {
+        // Jika tidak ada lokasi terakhir, minta posisi baru (Balanced mode agar cepat)
+        freshLoc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+      }
 
       if (freshLoc?.coords) {
         setLocation(freshLoc.coords);
         setGpsUpdatedAt(new Date());
         setGpsError(null);
-      }
-
-      // Jika belum ada lokasi terakhir, atau jika ditekan manual oleh user (!silent), ambil posisi satelit
-      if (!freshLoc || !silent) {
-        const currentLoc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        }).catch(() => null);
-
-        if (currentLoc?.coords) {
-          setLocation(currentLoc.coords);
-          setGpsUpdatedAt(new Date());
-          setGpsError(null);
-          return currentLoc.coords;
-        }
-      }
-
-      if (freshLoc?.coords) {
         return freshLoc.coords;
       }
     } catch (err) {
@@ -592,20 +464,13 @@ export default function HandoverFormScreen({ route, navigation }) {
   const selectAmt1 = (name) => { setAmt1(name); setShowWorkers1(false); };
   const selectAmt2 = (name) => { setAmt2(name); setShowWorkers2(false); };
 
-  // UPDATE ITEMS LOGIC (Optimized via useCallback to prevent parent cascade)
-  const setItemStatus = useCallback((index, statusValue) => {
-    setItems(prevItems => {
-      const newItems = [...prevItems];
-      if (!newItems[index]) return prevItems;
-      newItems[index] = {
-        ...newItems[index],
-        status: statusValue,
-        catatan: statusValue === 'BAIK' ? '' : newItems[index].catatan
-      };
-      return newItems;
-    });
-
+  // UPDATE ITEMS LOGIC
+  const setItemStatus = (index, statusValue) => {
+    const newItems = [...items];
+    newItems[index].status = statusValue;
     if (statusValue === 'BAIK') {
+      newItems[index].catatan = '';
+      // Hapus foto kerusakan item ini jika user memilih atau membatalkan ke BAIK
       setPhotos(prev => {
         if (!prev[`item_${index}`]) return prev;
         const nextPhotos = { ...prev };
@@ -613,34 +478,20 @@ export default function HandoverFormScreen({ route, navigation }) {
         return nextPhotos;
       });
     }
-  }, []);
+    setItems(newItems);
+  };
 
-  const updateItemSeverity = useCallback((index, severity) => {
-    setItems(prevItems => {
-      const newItems = [...prevItems];
-      if (!newItems[index]) return prevItems;
-      newItems[index] = { ...newItems[index], severity };
-      return newItems;
-    });
-  }, []);
+  const updateItemSeverity = (index, severity) => {
+    const newItems = [...items];
+    newItems[index].severity = severity;
+    setItems(newItems);
+  };
 
-  const updateItemCatatan = useCallback((index, text) => {
-    setItems(prevItems => {
-      const newItems = [...prevItems];
-      if (!newItems[index]) return prevItems;
-      newItems[index] = { ...newItems[index], catatan: text };
-      return newItems;
-    });
-  }, []);
-
-  const removePhoto = useCallback((photoKey) => {
-    setPhotos(prev => {
-      if (!prev[photoKey]) return prev;
-      const nextPhotos = { ...prev };
-      delete nextPhotos[photoKey];
-      return nextPhotos;
-    });
-  }, []);
+  const updateItemCatatan = (index, text) => {
+    const newItems = [...items];
+    newItems[index].catatan = text;
+    setItems(newItems);
+  };
 
   // CAMERA LOGIC
   const openCameraFor = async (type) => {
@@ -914,7 +765,116 @@ export default function HandoverFormScreen({ route, navigation }) {
     }
   };
 
+  // RENDER ITEM CHECKLIST
+  const renderChecklistItem = (item) => {
+    const originalIdx = items.findIndex(x => x.name === item.name);
+    const isBaik = item.status === 'BAIK';
+    const isRusak = item.status === 'RUSAK';
+    const optionLabels = getItemOptionLabels(item);
 
+    return (
+      <View key={originalIdx} style={tw`border-b border-gray-100 p-5 ${isRusak ? 'bg-red-50/50' : isBaik ? 'bg-green-50/30' : 'bg-white'}`}>
+        <View style={tw`flex-col`}>
+          <Text style={tw`text-gray-800 font-bold text-base mb-4 ${isRusak ? 'text-red-700' : ''}`}>{item.name}</Text>
+          <View style={tw`flex-row justify-between gap-3`}>
+            {/* Tombol BAIK */}
+            <TouchableOpacity
+              style={tw`flex-1 rounded-xl overflow-hidden shadow-sm`}
+              onPress={() => setItemStatus(originalIdx, 'BAIK')}
+            >
+              <LinearGradient
+                colors={isBaik ? PERTAMINA_GREEN : ['#F3F4F6', '#E5E7EB']}
+                style={tw`py-3 px-2 items-center justify-center border ${isBaik ? 'border-transparent' : 'border-gray-200'} rounded-xl`}
+              >
+                <Text style={tw`font-extrabold text-sm ${isBaik ? 'text-white' : 'text-gray-500'}`} numberOfLines={1}>
+                  {optionLabels.good}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* Tombol RUSAK */}
+            <TouchableOpacity
+              style={tw`flex-1 rounded-xl overflow-hidden shadow-sm`}
+              onPress={() => setItemStatus(originalIdx, 'RUSAK')}
+            >
+              <LinearGradient
+                colors={isRusak ? PERTAMINA_RED : ['#F3F4F6', '#E5E7EB']}
+                style={tw`py-3 px-2 items-center justify-center border ${isRusak ? 'border-transparent' : 'border-gray-200'} rounded-xl`}
+              >
+                <Text style={tw`font-extrabold text-sm ${isRusak ? 'text-white' : 'text-gray-500'}`} numberOfLines={1}>
+                  {optionLabels.bad}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Form Tambahan Jika RUSAK (Langsung Minta Catatan, Severity otomatis dari setting Admin) */}
+        {isRusak && (
+          <View style={tw`mt-4 pt-4 border-t border-red-200`}>
+            <View style={tw`flex-row items-center mb-3 justify-between`}>
+              <Text style={tw`text-xs font-bold text-red-800 uppercase tracking-wider`}>Detail Kerusakan / Catatan:</Text>
+            </View>
+
+            <View style={tw`bg-white rounded-xl shadow-sm border border-red-100 p-1`}>
+              <TextInput
+                style={[tw`p-3 text-sm text-gray-800 font-medium`, { minHeight: 80, textAlignVertical: 'top' }]}
+                placeholder="Ketik detail kerusakan di sini... (Opsional)"
+                placeholderTextColor="#9CA3AF"
+                value={item.catatan}
+                onChangeText={(text) => updateItemCatatan(originalIdx, text)}
+                multiline
+                maxLength={500}
+              />
+            </View>
+
+
+            {/* Wajib Foto Kerusakan */}
+            {item.category === 'A' && (
+              <View style={tw`mt-4 items-start`}>
+                <Text style={tw`text-xs font-bold text-red-800 uppercase tracking-wider mb-2`}>* Foto Kerusakan (Wajib)</Text>
+                <View style={tw`relative`}>
+                  <TouchableOpacity
+                    style={tw`w-32 h-32 bg-slate-50 rounded-2xl border-2 ${photos[`item_${originalIdx}`] ? 'border-green-500 shadow-md' : 'border-dashed border-red-300'} justify-center items-center overflow-hidden`}
+                    onPress={() => openCameraFor(`item_${originalIdx}`)}
+                  >
+                    {photos[`item_${originalIdx}`] ? (
+                      <>
+                        <Image source={{ uri: photos[`item_${originalIdx}`].uri }} style={tw`w-full h-full`} resizeMode="cover" />
+                        <View style={tw`absolute inset-0 bg-black/20 justify-center items-center`}>
+                          <Ionicons name="checkmark-circle" size={32} color="white" />
+                        </View>
+                      </>
+                    ) : (
+                      <>
+                        <Ionicons name="camera" size={32} color="#DC2626" />
+                        <Text style={tw`text-xs text-red-600 mt-2 font-bold`}>Ambil Foto</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  {photos[`item_${originalIdx}`] && (
+                    <TouchableOpacity
+                      style={tw`absolute -top-2 -right-2 bg-red-600 rounded-full p-1.5 shadow-md z-10 border-2 border-white`}
+                      onPress={() => {
+                        setPhotos(prev => {
+                          const nextPhotos = { ...prev };
+                          delete nextPhotos[`item_${originalIdx}`];
+                          return nextPhotos;
+                        });
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={16} color="white" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={tw`flex-1 bg-slate-50 ${isLargeScreen ? 'flex-row' : 'flex-col'}`}>
@@ -1125,18 +1085,7 @@ export default function HandoverFormScreen({ route, navigation }) {
                   </View>
                   <Text style={tw`font-extrabold text-lg text-gray-800`}>{meta.title}</Text>
                 </LinearGradient>
-                {categoryGroups[cat].map(({ item, index }) => (
-                  <ChecklistItemRow
-                    key={item.name}
-                    item={item}
-                    index={index}
-                    onSetStatus={setItemStatus}
-                    onUpdateCatatan={updateItemCatatan}
-                    onOpenCamera={openCameraFor}
-                    onRemovePhoto={removePhoto}
-                    photoUri={photos[`item_${index}`]?.uri}
-                  />
-                ))}
+                {categoryGroups[cat].map(renderChecklistItem)}
               </View>
             );
           })}
@@ -1224,18 +1173,7 @@ export default function HandoverFormScreen({ route, navigation }) {
                   </View>
                   <Text style={tw`font-extrabold text-lg text-gray-800`}>{meta.title}</Text>
                 </LinearGradient>
-                {categoryGroups[cat].map(({ item, index }) => (
-                  <ChecklistItemRow
-                    key={item.name}
-                    item={item}
-                    index={index}
-                    onSetStatus={setItemStatus}
-                    onUpdateCatatan={updateItemCatatan}
-                    onOpenCamera={openCameraFor}
-                    onRemovePhoto={removePhoto}
-                    photoUri={photos[`item_${index}`]?.uri}
-                  />
-                ))}
+                {categoryGroups[cat].map(renderChecklistItem)}
               </View>
             );
           })}

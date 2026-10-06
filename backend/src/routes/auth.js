@@ -58,34 +58,32 @@ router.post('/login', loginLimiter, async (req, res, next) => {
       data: { refreshToken }
     });
 
-    // Reset/selesaikan permohonan lupa password yang masih PENDING secara asynchronous (non-blocking)
-    setImmediate(async () => {
-      try {
-        await prisma.passwordResetRequest.updateMany({
-          where: {
-            userId: user.id,
-            status: 'PENDING'
-          },
-          data: {
-            status: 'RESOLVED',
-            adminNotes: 'Otomatis diselesaikan oleh sistem karena user berhasil mengingat password dan login.'
-          }
-        });
+    // Reset/selesaikan permohonan lupa password yang masih PENDING karena user berhasil login
+    try {
+      await prisma.passwordResetRequest.updateMany({
+        where: {
+          userId: user.id,
+          status: 'PENDING'
+        },
+        data: {
+          status: 'RESOLVED',
+          adminNotes: 'Otomatis diselesaikan oleh sistem karena user berhasil mengingat password dan login.'
+        }
+      });
 
-        // Tandai notifikasi lupa password terkait sebagai sudah terbaca
-        await prisma.notification.updateMany({
-          where: {
-            type: 'AUTH',
-            title: 'Permintaan Reset Password',
-            message: { contains: `(${user.username})` },
-            isRead: false
-          },
-          data: { isRead: true }
-        });
-      } catch (resetErr) {
-        console.log('Non-critical: error resetting pending password reset on login:', resetErr.message);
-      }
-    });
+      // Tandai notifikasi lupa password terkait sebagai sudah terbaca
+      await prisma.notification.updateMany({
+        where: {
+          type: 'AUTH',
+          title: 'Permintaan Reset Password',
+          message: { contains: `(${user.username})` },
+          isRead: false
+        },
+        data: { isRead: true }
+      });
+    } catch (resetErr) {
+      console.log('Non-critical: error resetting pending password reset on login:', resetErr.message);
+    }
 
     res.json({
       token,

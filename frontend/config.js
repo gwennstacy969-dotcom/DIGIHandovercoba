@@ -15,11 +15,8 @@ export const getDefaultApiUrl = () => {
   let host = 'localhost';
   try {
     if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined' && window.location) {
-        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-          return `http://${window.location.hostname}:3000`;
-        }
-        return window.location.origin;
+      if (typeof window !== 'undefined' && window.location?.hostname) {
+        host = window.location.hostname;
       }
     } else if (Constants.expoConfig?.hostUri) {
       const parsed = Constants.expoConfig.hostUri.split(':')[0];
