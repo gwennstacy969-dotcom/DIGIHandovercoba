@@ -1,8 +1,0 @@
-node_modules/
-
-uploads/
-.vscode/
-*.db
-*.db-journal
-logs/
-.env.backup
