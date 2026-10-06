@@ -1,7 +1,7 @@
 import WebSidebar from '../../components/WebSidebar';
 import WebNavbar from '../../components/WebNavbar';
 import Toast from 'react-native-toast-message';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { API_URL } from '../../config';
 import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, ActivityIndicator, TextInput, ScrollView, Dimensions } from 'react-native';
 import tw from 'twrnc';
@@ -61,8 +61,8 @@ export default function IssueListScreen({ navigation }) {
     ]
   });
 
-  const orb1TranslateY = React.useRef(new Animated.Value(0)).current;
-  const orb2TranslateY = React.useRef(new Animated.Value(0)).current;
+  const orb1TranslateY = useRef(new Animated.Value(0)).current;
+  const orb2TranslateY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.loop(Animated.sequence([
