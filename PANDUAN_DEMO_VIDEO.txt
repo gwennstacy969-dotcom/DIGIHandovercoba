@@ -1,0 +1,137 @@
+=====================================================
+PANDUAN DEMO VIDEO TUTORIAL - DIGI HANDOVER
+Peran: ADMIN, AMT, PENGAWAS
+=====================================================
+Catatan: nama akun/menu adalah contoh, sesuaikan dengan aplikasi.
+
+-----------------------------------------------------
+A. PERSIAPAN
+-----------------------------------------------------
+1. Backend dan APK sudah jalan & terhubung internet.
+2. Di HP:
+   - Aktifkan "Show taps" (Developer options)
+   - Aktifkan mode Jangan Ganggu
+   - Baterai > 50%, GPS aktif
+3. Rekam layar: potret, 1080p. SATU VIDEO PER PERAN.
+4. Urutan rekam: Admin -> AMT -> Pengawas.
+
+CHECKLIST DATA DEMO
+[ ] Akun Admin      (admin_demo)
+[ ] Akun Pengawas   (pengawas_demo)
+[ ] Akun AMT 1      (amt_demo1)
+[ ] Akun AMT 2      (opsional)
+[ ] 2 kendaraan/unit (mis. DT-001, DT-002)
+[ ] QR tiap unit (tampil di layar PC / dicetak)
+[ ] Checklist aktif 8-10 item
+[ ] 1-2 foto contoh kerusakan
+
+SKENARIO
+1. Handover normal (semua OK -> submit sukses)
+2. Handover bermasalah (1 item tidak OK + foto + catatan -> muncul isu)
+3. QR salah/tidak valid (popup error scanner)
+4. Validasi form kosong (popup validasi)
+5. GPS mati lalu Perbarui Lokasi (popup GPS belum siap)
+
+-----------------------------------------------------
+B. VIDEO 0 - INTRO (10 dtk)
+-----------------------------------------------------
+Narasi:
+"Halo, pada video ini kita akan melihat cara menggunakan aplikasi
+DIGI Handover, aplikasi serah terima unit untuk AMT, Pengawas,
+dan Admin. Kita mulai dari peran Admin."
+
+-----------------------------------------------------
+C. VIDEO 1 - ADMIN (+/- 4 menit)
+-----------------------------------------------------
+1. Login
+   Aksi : Buka aplikasi, isi username & password Admin, tekan Masuk.
+   Narasi: "Masukkan username dan password Admin, lalu tekan Masuk."
+2. Dashboard Admin
+   Narasi: "Ini Dashboard Admin. Terlihat ringkasan handover, status,
+   dan aktivitas terbaru."
+3. Notifikasi
+   Aksi : Ketuk ikon lonceng, tunjukkan unread/read, tutup.
+   Narasi: "Notifikasi yang belum dibaca ditandai berbeda."
+4. Kelola Checklist (ChecklistManager)
+   Aksi : Tambah/edit satu item, simpan.
+   Narasi: "Admin menambah atau mengubah item pemeriksaan. Item ini
+   akan muncul di form AMT."
+5. Kelola Pengguna (WorkerList, PengawasList, AdminList)
+   Aksi : Lihat daftar, tambah akun AMT baru, edit/nonaktifkan.
+   Narasi: "Admin mengelola akun AMT, Pengawas, dan Admin."
+6. Kendaraan (VehicleList)
+   Narasi: "Daftar unit beserta kode QR-nya ada di menu Kendaraan."
+7. Riwayat & Detail (History -> HandoverDetail)
+   Narasi: "Admin memantau semua handover: checklist, foto, lokasi
+   GPS, dan waktu."
+8. Isu (IssueList -> IssueDetail)
+   Narasi: "Admin melihat laporan kerusakan beserta statusnya."
+9. Pesan (MessageCenter) - tunjukkan sekilas.
+10. Logout
+   Narasi: "Selesai, tekan Keluar."
+
+-----------------------------------------------------
+D. VIDEO 2 - AMT (+/- 5 menit)
+-----------------------------------------------------
+1. Login dengan akun AMT.
+2. Dashboard User
+   Narasi: "Dashboard menampilkan info shift dan tombol Mulai Handover."
+3. Notifikasi/Pesan (MessageCenter) - tunjukkan sekilas.
+4. Scanner
+   Aksi : Tekan Mulai Handover, izinkan kamera, scan QR unit.
+   - QR benar : "Scan berhasil, unit terdeteksi."
+   - QR salah : "QR tidak valid, aplikasi menampilkan pesan error."
+5. Form Handover
+   Narasi: "Form terisi otomatis dengan data unit dan shift."
+6. GPS
+   Aksi : Matikan GPS -> tekan Perbarui Lokasi -> muncul popup GPS
+          belum siap -> aktifkan GPS -> perbarui lagi.
+   Narasi: "Jika GPS mati muncul peringatan. Setelah GPS aktif dan
+   Perbarui Lokasi ditekan, status berubah menjadi terdeteksi."
+7. Checklist
+   Aksi : Isi tiap item. Item bermasalah: pilih Tidak OK, ambil foto
+          (CameraScreen), tulis catatan.
+8. Validasi
+   Aksi : Tekan Kirim dengan field wajib kosong.
+   Narasi: "Jika ada data wajib kosong, muncul peringatan."
+9. Submit
+   Aksi : Lengkapi data -> Kirim -> Konfirmasi -> popup sukses.
+10. Riwayat (History -> HandoverDetail)
+11. Verifikasi Perbaikan (FixVerification) - jika ada isu diperbaiki,
+    unggah foto bukti.
+12. Logout.
+
+-----------------------------------------------------
+E. VIDEO 3 - PENGAWAS (+/- 4 menit)
+-----------------------------------------------------
+1. Login dengan akun Pengawas.
+2. Notifikasi
+   Narasi: "Pengawas mendapat notifikasi saat AMT mengirim handover
+   atau melaporkan isu."
+3. Dashboard
+   Narasi: "Menampilkan handover yang perlu direview."
+4. Review (History -> HandoverDetail)
+   Aksi : Periksa checklist, foto, catatan, lokasi; lakukan verifikasi.
+5. Isu (IssueList -> IssueDetail)
+   Aksi : Buka isu dari AMT, lihat foto, ubah status/beri tindak lanjut.
+6. Kendaraan (VehicleList) & Pesan (MessageCenter).
+7. Logout.
+
+-----------------------------------------------------
+F. PENUTUP (10 dtk)
+-----------------------------------------------------
+Narasi:
+"Demikian tutorial DIGI Handover untuk AMT, Pengawas, dan Admin.
+Terima kasih."
+
+-----------------------------------------------------
+G. TIPS REKAM & EDITING
+-----------------------------------------------------
+- Gerakan jari pelan, jeda 1-2 detik tiap pindah layar.
+- Rekam narasi terpisah agar suara bersih.
+- Uji semua skenario sekali tanpa rekam.
+- Editing (CapCut / Clipchamp / DaVinci Resolve):
+  tambah judul per bagian, subtitle, zoom di popup/GPS/scan,
+  potong bagian loading.
+- Susunan akhir: Intro -> Admin -> AMT -> Pengawas -> Penutup.
+- Ekspor MP4 1080p.

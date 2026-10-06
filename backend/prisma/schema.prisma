@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model ChecklistItem {
+  id        String   @id @default(cuid())
+  category  String
+  name      String
+  severity  String   @default("Minor")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("checklistitem")
+}
+
+model Handover {
+  id          String   @id @default(cuid())
+  handoverNo  String?  @db.VarChar(50)
+  noPolisi    String   @db.VarChar(50)
+  shift       String
+  status      String   @db.VarChar(50)
+  type        String   @default("mulai")
+  locationLat Float?
+  locationLng Float?
+  amt1        String?  @db.VarChar(100)
+  amt2        String?  @db.VarChar(100)
+  timestamp   DateTime @default(now())
+  notes       String?  @db.Text
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user   User           @relation(fields: [userId], references: [id])
+  items  HandoverItem[]
+  photos Photo[]
+  issue  Issue?
+  emailNotificationLogs EmailNotificationLog[]
+
+  @@index([userId], map: "Handover_userId_fkey")
+  @@index([createdAt, status, noPolisi])
+  @@map("handover")
+}
+
+model HandoverItem {
+  id         String  @id @default(cuid())
+  category   String
+  name       String
+  isGood     Boolean
+  handoverId String
+
+  repairNote     String?
+  repairPhotoUrl String?
+  isRepaired     Boolean @default(false)
+  adminRejectionNote String?
+
+  handover Handover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
+
+  @@index([handoverId], map: "HandoverItem_handoverId_fkey")
+  @@map("handoveritem")
+}
+
+model Issue {
+  id                String    @id @default(cuid())
+  handoverId        String    @unique(map: "Issue_handoverId_key")
+  status            String    @default("ONGOING")
+  resolvedAt        DateTime?
+  repairRequestedAt DateTime?
+  resolvedBy        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  handover Handover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
+
+  @@map("issue")
+}
+
+model Photo {
+  id           String @id @default(cuid())
+  type         String
+  url          String
+  thumbnailUrl String?
+  previewUrl   String?
+  originalSize Int?
+  handoverId   String
+
+  handover Handover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
+
+  @@index([handoverId], map: "Photo_handoverId_fkey")
+  @@map("photo")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique(map: "User_username_key")
+  password  String
+  role      String
+  name      String
+  jabatan   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  refreshToken String? @db.Text
+  fcmToken     String?
+  deletedAt    DateTime?
+
+  handovers Handover[]
+  notifications Notification[] @relation("UserNotifications")
+  passwordResetRequests      PasswordResetRequest[] @relation("UserPasswordResetRequests")
+  passwordResetsPerformed    PasswordResetRequest[] @relation("AdminPasswordResetRequests")
+  emailNotificationLogs      EmailNotificationLog[]
+
+  @@map("user")
+}
+
+model Vehicle {
+  id             String   @id @default(cuid())
+  noPolisi       String   @unique(map: "Vehicle_noPolisi_key")
+  barcode        String   @unique(map: "Vehicle_barcode_key")
+  jenisKendaraan String?
+  kapasitas      Int?
+  brand          String?
+  status         String   @default("Active")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("vehicle")
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  title       String
+  message     String
+  isRead      Boolean   @default(false)
+  type        String    @default("INFO")
+  targetRole  String?   @default("ADMIN")
+  targetUserId String?
+  createdAt   DateTime  @default(now())
+  actionType  String?
+  actionId    String?
+  noPolisi    String?
+
+  targetUser  User?     @relation("UserNotifications", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([targetUserId])
+  @@index([targetRole])
+  @@map("notification")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  details   String?  @db.Text
+  createdAt DateTime @default(now())
+  actionType  String?
+  actionId    String?
+  noPolisi    String?
+
+  @@map("audit_log")
+}
+
+model PasswordResetRequest {
+  id              String    @id @default(cuid())
+  userId          String
+  email           String
+  reason          String?   @db.Text
+  status          String    @default("PENDING")
+  adminNotes      String?   @db.VarChar(500)
+  resetByAdminId  String?
+  newPasswordHash String?
+  resetAt         DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation("UserPasswordResetRequests", fields: [userId], references: [id], onDelete: Cascade)
+  admin           User?     @relation("AdminPasswordResetRequests", fields: [resetByAdminId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([userId])
+  @@map("password_reset_request")
+}
+
+model EmailNotificationLog {
+  id           String    @id @default(cuid())
+  adminId      String?
+  handoverId   String?
+  emailAddress String
+  subject      String?
+  emailType    String    @default("SYSTEM")
+  emailStatus  String    @default("PENDING")
+  errorMessage String?   @db.Text
+  retryCount   Int       @default(0)
+  sentAt       DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  admin        User?     @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  handover     Handover? @relation(fields: [handoverId], references: [id], onDelete: SetNull)
+
+  @@index([emailStatus])
+  @@index([adminId])
+  @@index([handoverId])
+  @@map("email_notification_log")
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String?  @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("system_setting")
+}

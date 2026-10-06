@@ -1,0 +1,82 @@
+DAFTAR RINCIAN FITUR APLIKASI HANDOVER (REAL & TERPERINCI)
+(Dokumen Spesifikasi Teknis - Sesuai dengan Implementasi Nyata di Sistem)
+
+Berikut adalah daftar nyata, mendetail, dan jujur mengenai seluruh fitur fungsional yang telah diimplementasikan ke dalam Aplikasi Handover (Backend, Frontend, dan Database).
+
+---
+
+1. Modul Akun & Keamanan Akses
+1. Login Multi-Role Terpusat: Sistem login tunggal yang mendeteksi dan mengarahkan pengguna secara otomatis ke halaman yang sesuai dengan hak aksesnya (Admin, Pengawas, Pekerja).
+2. Sistem Sesi JWT (JSON Web Token): Menggunakan token terenkripsi agar sesi login pekerja aman dan tidak mudah disadap.
+3. Pemulihan Akun via Admin: Fitur untuk mengajukan "Lupa Password" dari halaman login, yang notifikasinya akan masuk dan dapat disetujui melalui Dashboard Admin.
+4. Edit Profil Mandiri (Pekerja): Pekerja (AMT) dapat mengubah username dan password mereka sendiri jika dibutuhkan.
+
+2. Modul Dasbor (Dashboard)
+5. Dashboard Analitik (Admin & Pengawas): Menampilkan metrik real-time seperti Total Armada Siap Operasi, Total Truk Berkendala (Isu), dan Jumlah Pekerja Aktif hari ini.
+6. Recent Activity View: Menampilkan daftar singkat kendaraan yang baru saja selesai diinspeksi.
+7. Dashboard Pekerja (AMT): Halaman pembuka personal untuk supir tangki yang menampilkan info Shift harian dan tombol pintas aksi raksasa "Mulai Pengecekan Handover".
+
+3. Modul Master Data Kendaraan
+8. CRUD Kendaraan Tangki: Form penambahan, pembaharuan, dan pencarian data truk berdasarkan Plat Nomor.
+9. Kategorisasi Kapasitas Fleksibel: Dropdown otomatis untuk kapasitas tangki truk (Misal: 5KL, 8KL, 16KL, 24KL).
+10. Auto-Generator Barcode Truk: Sistem yang membuat gambar barcode (QR) unik secara otomatis saat truk didaftarkan ke sistem.
+11. Unduh & Cetak Barcode: Admin dapat melihat dan mengunduh gambar Barcode tersebut untuk dicetak dan ditempel di bodi fisik kendaraan.
+12. Perlindungan Hapus Data (Confirm Modal): Kotak peringatan 2-langkah dengan efek glassmorphism sebelum Admin menghapus truk untuk mencegah salah klik.
+13. Cascade Data Cleanup: Fitur pembersih pintar; jika data truk dihapus dari sistem, foto kerusakan dan riwayat handover truk tersebut otomatis dibersihkan agar database rapi.
+
+4. Modul Master Data SDM
+14. Manajemen Akun Pengawas: Pendaftaran akun Pengawas yang diotomatisasi (form hanya meminta nama dan kata sandi tanpa kolom jabatan membingungkan, sistem otomatis mencetak hak akses Pengawas).
+15. Manajemen Akun Pekerja (AMT): Pendaftaran supir lengkap dengan kolom Jabatan spesifik (AMT 1, AMT 2, dll).
+16. Pencarian SDM Instan: Kolom pencarian untuk menyaring daftar karyawan berdasarkan Nama Lengkap atau Username.
+
+5. Modul Master Standar Operasi (Checklist)
+17. CRUD Pertanyaan Handover: Admin dapat menambah dan mengubah daftar pertanyaan (SOP) pengecekan kondisi truk.
+18. Kategorisasi Kustom (A & B): Pembagian parameter di mana Kategori A ditujukan untuk "Kondisi Fisik Truk", dan Kategori B ditujukan untuk "Perlengkapan/Seragam Pekerja".
+19. Level Bahaya (Severity System): Admin dapat menyetel apakah sebuah komponen tergolong "Minor" atau "Major". (Jika bagian yang "Major" dilaporkan rusak, truk akan otomatis diblokir).
+
+6. Modul Pengecekan di Lapangan (Handover Scanner)
+20. Kamera In-App & Barcode Scanner: Pemindai barcode bawaan di dalam aplikasi agar AMT tidak perlu mengetik plat nomor truk secara manual.
+21. Validasi Salah Pindai: Peringatan UI dinamis (alert silang/tutup) jika AMT menyeken barcode yang rusak atau salah.
+22. Logika Form Dinamis Tanpa Jeda (Zero Delay): Seluruh form pertanyaan dimuat tanpa jeda (loading) agar pekerjaan di lapangan cepat selesai.
+23. Pencarian Rekan Kerja (Autocomplete): Pemilihan partner AMT ke-2 yang menampilkan rekomendasi nama seiring AMT ke-1 mengetik huruf.
+24. Deteksi Koordinat Lokasi (GPS): Perekaman Latitude dan Longitude secara otomatis saat form handover diisi.
+25. Numpad Odometer Form: Memaksa munculnya keyboard angka saat AMT harus mengetik nomor kilometer odometer agar tidak typo (salah ketik huruf).
+26. Validasi Form Kelengkapan: Sistem menolak tombol kirim (Submit) jika AMT melewatkan satupun pertanyaan.
+
+7. Modul Logika Bersyarat Form (Conditional Logic)
+27. Wajib Deskripsi: Jika item mana pun dijawab "RUSAK" atau "TIDAK ADA", sebuah kolom deskripsi akan otomatis terbuka dan wajib diisi oleh AMT.
+28. Wajib Foto (Khusus Kategori A): Jika yang rusak adalah barang fisik/mekanik Kategori A, tombol "Ambil Foto Kerusakan" muncul dan wajib ditekan.
+29. Toleransi Kategori B: Jika yang kurang adalah Perlengkapan Seragam (Kategori B), kamera disembunyikan otomatis karena foto seragam tidak diwajibkan oleh sistem.
+30. Kompresi Upload Foto Bukti: Pengiriman foto menggunakan sistem transmisi Multipart/Form-Data yang disimpan dengan aman di sistem backend.
+
+8. Modul Pelacakan & Resolusi Isu (Issue Tracking)
+31. Sistem Auto-Blokir (Lockdown): Logika backend yang langsung men-flag status kendaraan menjadi "ISU" apabila ada komponen berat (Major) yang rusak. Truk dengan status "ISU" tidak akan bisa discan oleh AMT manapun.
+32. Halaman Khusus Daftar Isu: Dashboard terpisah bagi Admin & Pengawas untuk mengawasi truk-truk yang harus diperbaiki.
+33. Modal Detail Kerusakan Truk: Menampilkan siapa pelapornya, jam pelaporan, plat nomor, serta bukti foto kerusakan yang dikirim oleh AMT.
+34. Formulir Verifikasi Perbaikan: Fitur khusus admin mekanik untuk menuliskan rekaman tindakan perbaikan.
+35. Unggah Bukti Perbaikan: Fasilitas untuk mekanik mengunggah foto truk sesudah diperbaiki (After Repair).
+36. Pencabutan Blokir Otomatis (Resolve Issue): Menekan tombol verifikasi perbaikan akan mengembalikan status truk dari "ISU" menjadi "NORMAL" kembali.
+
+9. Modul Pusat Pesan Interaktif (Message Center)
+37. Auto-Live Polling Notifikasi: Pengambilan data pesan masuk secara terus-menerus tanpa perlu menarik layar (refresh).
+38. Role-Isolated Badge System: Angka titik merah (Unread Badge) yang menghitung pesan untuk Admin secara independen. (Jika Admin membuka pesannya, notifikasi di aplikasi Pengawas tidak akan terpengaruh/hilang).
+39. Modal Detail Pesan Lengkap: Saat notifikasi pesan (seperti isu truk baru atau salah password) ditekan, layar akan memunculkan Pop-up Window untuk membaca seluruh paragraf pesan secara utuh.
+40. Ikon Pesan Kontekstual: Ikon notifikasi yang berbeda tergantung isinya (Tanda Kunci untuk Reset Password, Tanda Peringatan untuk Isu Kerusakan).
+41. Fungsi Mark-As-Read Otomatis: Status merah pada ikon pesan akan berubah ketika notifikasi diklik dan dibaca.
+
+10. Modul Pencarian & Filter Riwayat Harian
+42. Daftar Laporan Handover: Tabel besar yang memuat semua histori serah terima dan insiden yang terjadi.
+43. Pencarian Spesifik: Mencari data truk spesifik berdasarkan Nama Plat Nomor atau Nama Supir.
+44. Filter Status Kendaraan: Saklar cepat (Normal vs Isu).
+45. Filter Jadwal (Shift): Menyaring hasil berdasarkan irisan waktu dinas AMT.
+46. Filter Range Tanggal (Start & End Date): Fitur filter lanjutan untuk menarik data dari Tanggal A sampai dengan Tanggal B, dipadukan dengan Native OS Date Picker (Kalender Android/Web bawaan).
+
+11. Modul Pelaporan Manajerial & Ekspor Laporan
+47. PDF Reporting Engine: Fasilitas pembuat dokumen PDF yang merangkum data Handover secara otomatis dari server Node.js.
+48. Dynamic PDF Coloring: Sistem pewarnaan sel tabel; baris laporan di dokumen PDF akan tercetak secara kondisional dengan huruf/font warna MERAH jika data kolom tersebut dilaporkan "RUSAK".
+49. Excel Data Exporter: Fasilitas unduh data berformat XLSX (Microsoft Excel Spreadsheet) untuk mempermudah pekerjaan rekapitulasi data akuntansi perusahaan.
+
+12. Modul Pemantauan Integritas Sistem (Audit Log)
+50. Sistem Perekam Jejak (Audit Trail): Pencatatan diam-diam seluruh aktivitas krusial di backend. 
+51. Attribusi Pengguna & Waktu Akses: Merekam spesifik identitas User ID beserta Timestamp (jam dan detik) setiap kali Admin melakukan ekspor PDF atau modifikasi data penting.
+52. Desain UI/UX Premium (Glassmorphism): Penerapan material gaya blur, efek gelap/terang semi-transparan, dengan respons animasi cepat untuk meningkatkan kepuasan penggunaan aplikasi (User Experience).
