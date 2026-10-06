@@ -1,21 +1,24 @@
+// @ts-nocheck
 import WebSidebar from '../../components/WebSidebar';
 import WebNavbar from '../../components/WebNavbar';
 import Toast from 'react-native-toast-message';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { API_URL } from '../../config';
-import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, ActivityIndicator, TextInput, ScrollView, Dimensions } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, ActivityIndicator, TextInput, ScrollView } from 'react-native';
 import tw from 'twrnc';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import axios from 'axios';
-import { useRoleGuard } from '../../hooks/useRoleGuard';
-import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
-import { handleLogoutAndReset } from '../../utils/authHelper';
 
 const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
 
 const API_BASE = { toString: () => `${API_URL}/api` };
+
+const { Dimensions } = require('react-native');
+import { useRoleGuard } from '../../hooks/useRoleGuard';
+import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
+import { handleLogoutAndReset } from '../../utils/authHelper';
 
 export default function IssueListScreen({ navigation }) {
   useRoleGuard(['SUPER_ADMIN', 'ADMIN', 'PENGAWAS', 'AMT']);
@@ -61,8 +64,8 @@ export default function IssueListScreen({ navigation }) {
     ]
   });
 
-  const orb1TranslateY = useRef(new Animated.Value(0)).current;
-  const orb2TranslateY = useRef(new Animated.Value(0)).current;
+  const orb1TranslateY = React.useRef(new Animated.Value(0)).current;
+  const orb2TranslateY = React.useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.loop(Animated.sequence([
@@ -221,7 +224,7 @@ export default function IssueListScreen({ navigation }) {
             </View>
           </View>
         )}
-        
+
         {/* Footer (Lihat Detail) to match HistoryScreen */}
         <View style={tw`flex-row items-center justify-end mt-3 pt-3 border-t border-gray-100`}>
           <Text style={tw`text-[#0055A5] font-bold text-xs`}>Lihat Detail & Preview {'>'}</Text>
@@ -334,15 +337,15 @@ export default function IssueListScreen({ navigation }) {
               <View style={tw`items-center mt-20`}>
                 <Ionicons name={issueFilter === 'current' ? "checkmark-circle-outline" : "file-tray-outline"} size={60} color="#CBD5E1" />
                 <Text style={tw`text-center text-gray-600 font-black mt-4 text-xl`}>
-                  {searchQuery.trim() !== '' 
+                  {searchQuery.trim() !== ''
                     ? "Pencarian Tidak Ditemukan"
                     : (issueFilter === 'current' ? "Tidak Ada Isu Terkini" : "Belum Ada Riwayat Isu")}
                 </Text>
                 <Text style={tw`text-center text-gray-400 font-medium mt-2 text-sm max-w-[80%]`}>
                   {searchQuery.trim() !== ''
                     ? `Tidak ada hasil pencarian untuk "${searchQuery}". Coba kata kunci lain.`
-                    : (issueFilter === 'current' 
-                        ? "Semua kendaraan saat ini dalam kondisi terkendali." 
+                    : (issueFilter === 'current'
+                        ? "Semua kendaraan saat ini dalam kondisi terkendali."
                         : "Belum terdapat riwayat isu pada sistem.")}
                 </Text>
               </View>
