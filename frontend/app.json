@@ -46,14 +46,17 @@
       [
         "expo-build-properties",
         {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ],
     "extra": {
       "eas": {
-        "projectId": "2aa65f6c-6739-40c6-8bc1-895689483618"
+        "projectId": "bb029be8-cbd9-4109-b823-373d908f5fa7"
       }
     },
-    "owner": "haulafatihas-team"
+    "owner": "ikhsanularifin"
   }
 }
