@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { API_URL } from '../../config';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, StyleSheet, Image, ActivityIndicator, Dimensions, Platform, AppState } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, StyleSheet, Image, ActivityIndicator, Dimensions, Platform, Linking } from 'react-native';
 import tw from 'twrnc';
 import TextLogo from '../../components/TextLogo';
+import AppModal, { AppModalDetail } from '../../components/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -11,6 +12,7 @@ import * as Location from 'expo-location';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import WebSidebar from '../../components/WebSidebar';
+import WebNavbar from '../../components/WebNavbar';
 import { getItemOptionLabels } from '../../utils/checklistHelper';
 import { handleLogoutAndReset } from '../../utils/authHelper';
 import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
@@ -74,9 +76,19 @@ export default function HandoverFormScreen({ route, navigation }) {
   }, []);
 
   useEffect(() => {
-    AsyncStorage.getItem('user').then(str => {
-      if (str) setUser(JSON.parse(str));
-    });
+    const loadUser = async () => {
+      try {
+        const str = await AsyncStorage.getItem('user');
+        if (str) {
+          const parsed = JSON.parse(str);
+          setUser(parsed);
+        }
+      } catch (error) {
+        console.error('Gagal membaca data user:', error);
+        setUser(null);
+      }
+    };
+    loadUser();
   }, []);
 
   const handleLogout = async () => {
@@ -151,6 +163,8 @@ export default function HandoverFormScreen({ route, navigation }) {
   const [notes, setNotes] = useState('');
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState(null);
+  const [gpsUpdatedAt, setGpsUpdatedAt] = useState(null);
+  const [showGpsModal, setShowGpsModal] = useState(false);
   const [photos, setPhotos] = useState({ Depan: null, Belakang: null, Kanan: null, Kiri: null });
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
@@ -199,6 +213,7 @@ export default function HandoverFormScreen({ route, navigation }) {
       { isOpen: isCameraOpen, close: () => setIsCameraOpen(false) },
       { isOpen: showExitConfirmModal, close: () => setShowExitConfirmModal(false) },
       { isOpen: showConfirmSubmitModal, close: () => setShowConfirmSubmitModal(false) },
+      { isOpen: showGpsModal, close: () => setShowGpsModal(false) },
       { isOpen: validationModalVisible, close: () => setValidationModalVisible(false) },
     ],
     onBack: () => {
@@ -323,52 +338,69 @@ export default function HandoverFormScreen({ route, navigation }) {
     })();
   }, []);
 
-  // FUNGSI PENGAMBILAN LOKASI GPS (Manual & Otomatis)
-  const fetchLocation = async (silent = true) => {
+  // FUNGSI PENGAMBILAN LOKASI GPS (Dipanggil sekali saat mount, dan saat user menekan refresh)
+  const refreshLocation = async (silent = true) => {
     try {
       if (!silent) setGpsLoading(true);
+
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocation(null);
+        setGpsError("Izin lokasi tidak diberikan.");
+        if (!silent && !showGpsModal) showValidationError("Izin Ditolak", "Aplikasi membutuhkan izin lokasi untuk melanjutkan.");
+        return null;
+      }
+
       const isServiceEnabled = await Location.hasServicesEnabledAsync().catch(() => true);
       if (!isServiceEnabled) {
+        setLocation(null);
         setGpsError("Layanan lokasi (GPS) belum aktif di HP.");
-        if (!silent) {
-          Alert.alert("GPS Tidak Aktif", "Silakan nyalakan GPS / Layanan Lokasi di HP Anda, lalu coba lagi.");
+        if (!silent && !showGpsModal) {
+          showValidationError("GPS Tidak Aktif", "Silakan nyalakan GPS / Layanan Lokasi di HP Anda, lalu coba lagi.");
         }
         return null;
       }
 
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setGpsError("Izin lokasi belum diberikan.");
-        if (!silent) {
-          Alert.alert("Izin Lokasi Diperlukan", "Harap berikan izin akses lokasi pada aplikasi ini di Pengaturan HP.");
-        }
-        return null;
+      // Coba ambil lokasi terakhir (last known) jika masih baru (1 menit)
+      let freshLoc = await Location.getLastKnownPositionAsync({
+        maxAge: 60000 
+      }).catch(() => null);
+
+      if (!freshLoc) {
+        // Jika tidak ada lokasi terakhir, minta posisi baru (Balanced mode agar cepat)
+        freshLoc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
       }
 
-      // Ambil posisi terakhir yang diketahui secara instan jika ada
-      const lastKnown = await Location.getLastKnownPositionAsync({}).catch(() => null);
-      if (lastKnown && lastKnown.coords) {
-        setLocation(lastKnown.coords);
-        setGpsError(null);
-      }
-
-      // Ambil posisi baru akurat (Balanced mode)
-      const freshLoc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-        timeout: 6000
-      });
-
-      if (freshLoc && freshLoc.coords) {
+      if (freshLoc?.coords) {
         setLocation(freshLoc.coords);
+        setGpsUpdatedAt(new Date());
         setGpsError(null);
         return freshLoc.coords;
       }
     } catch (err) {
-      const errMsg = err?.message || String(err);
-      if (errMsg.includes("unsatisfied device settings")) {
-        setGpsError("GPS perangkat belum aktif / mode hemat daya.");
+      console.error('GPS error:', err);
+      // Fallback jika getCurrentPosition gagal (misal susah sinyal GPS)
+      try {
+         const fallbackLoc = await Location.getLastKnownPositionAsync();
+         if (fallbackLoc?.coords) {
+           setLocation(fallbackLoc.coords);
+           setGpsUpdatedAt(new Date());
+           setGpsError(null);
+           return fallbackLoc.coords;
+         }
+      } catch (fallbackErr) {
+         console.error('Fallback GPS error:', fallbackErr);
+      }
+
+      setLocation(null);
+      if (err?.message?.includes('unsatisfied device settings')) {
+        setGpsError("GPS belum aktif / mode hemat daya.");
+      } else if (err?.message?.includes('Not authorized')) {
+        setGpsError("Izin lokasi ditolak.");
       } else {
-        setGpsError("Menunggu sinyal GPS...");
+        setGpsError("Sinyal GPS lemah. Cari ruang terbuka.");
       }
     } finally {
       if (!silent) setGpsLoading(false);
@@ -376,84 +408,39 @@ export default function HandoverFormScreen({ route, navigation }) {
     return null;
   };
 
-  // EFFECT: Watcher & Auto-update Lokasi GPS secara otomatis
+  // EFFECT: Inisialisasi GPS — permission diminta SEKALI, lalu ambil lokasi sekali saja.
   useEffect(() => {
     let isMounted = true;
-    let watcherSub = null;
 
-    const startWatching = async () => {
+    const initLocation = async () => {
       try {
+        // Request permission SEKALI saja
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted' && isMounted) {
-          watcherSub = await Location.watchPositionAsync(
-            {
-              accuracy: Location.Accuracy.Balanced,
-              timeInterval: 3000,
-              distanceInterval: 5,
-            },
-            (newLocation) => {
-              if (newLocation?.coords && isMounted) {
-                setLocation(newLocation.coords);
-                setGpsError(null);
-              }
-            }
-          );
+        if (status !== 'granted') {
+          if (isMounted) {
+            setGpsError('Izin lokasi belum diberikan.');
+          }
+          return;
         }
-      } catch (e) {
-        if (e?.message?.includes("unsatisfied device settings")) {
-          if (isMounted) setGpsError("GPS perangkat belum aktif / mode hemat daya.");
+
+        if (!isMounted) return;
+
+        // Ambil posisi awal sekali saja saat form dibuka
+        await refreshLocation(true);
+      } catch (error) {
+        console.error('Gagal inisialisasi GPS:', error);
+        if (isMounted) {
+          setGpsError('GPS tidak dapat digunakan.');
         }
       }
     };
 
-    fetchLocation(true);
-    startWatching();
-
-    // Auto-detect saat user kembali ke app (misal baru mengaktifkan GPS di Android Quick Settings / Settings)
-    const appStateSub = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active' && isMounted) {
-        fetchLocation(true);
-        if (!watcherSub) {
-          startWatching();
-        }
-      }
-    });
-
-    // Polling ringan berkala selama lokasi belum terdeteksi (setiap 4 detik)
-    const intervalId = setInterval(async () => {
-      if (isMounted) {
-        const services = await Location.hasServicesEnabledAsync().catch(() => false);
-        if (services) {
-          fetchLocation(true);
-        }
-      }
-    }, 4000);
+    initLocation();
 
     return () => {
       isMounted = false;
-      if (watcherSub) watcherSub.remove();
-      appStateSub?.remove();
-      clearInterval(intervalId);
     };
   }, []);
-
-  // Sinkronisasi otomatis watermark foto jika lokasi GPS baru saja terdeteksi
-  useEffect(() => {
-    if (location) {
-      const locStr = `Lat: ${location.latitude.toFixed(5)}, Lng: ${location.longitude.toFixed(5)}`;
-      setPhotos(prev => {
-        let hasUpdate = false;
-        const nextPhotos = { ...prev };
-        Object.keys(nextPhotos).forEach(key => {
-          if (nextPhotos[key] && (!nextPhotos[key].locStr || nextPhotos[key].locStr.includes('tidak ditemukan'))) {
-            nextPhotos[key] = { ...nextPhotos[key], locStr };
-            hasUpdate = true;
-          }
-        });
-        return hasUpdate ? nextPhotos : prev;
-      });
-    }
-  }, [location]);
 
   // AUTOCOMPLETE LOGIC (Sorted Alphabetically & Dedicated for AMT 1 vs AMT 2)
   const handleSearchAmt1 = (text) => {
@@ -517,16 +504,25 @@ export default function HandoverFormScreen({ route, navigation }) {
       return;
     }
 
+    if (!location) {
+      showValidationError('GPS Belum Siap', 'Silakan tunggu atau perbarui lokasi GPS di bagian Info Perjalanan sebelum mengambil foto.');
+      return;
+    }
+
+    // Pengecekan instan: Pastikan GPS masih menyala saat ini
+    const isServiceEnabled = await Location.hasServicesEnabledAsync().catch(() => true);
+    if (!isServiceEnabled) {
+      setLocation(null);
+      setGpsError("Layanan lokasi (GPS) dimatikan.");
+      showValidationError('GPS Dimatikan', 'Sistem mendeteksi GPS Anda dimatikan. Harap nyalakan kembali dan perbarui lokasi sebelum mengambil foto.');
+      return;
+    }
+
     // Buka kamera langsung tanpa menunggu (instan)
     setActivePhotoType(type);
     setPreviewPhoto(null);
     setIsCameraReady(false);
     setIsCameraOpen(true);
-
-    // Ambil/perbarui lokasi secara asinkron di latar belakang jika belum terdeteksi
-    if (!location) {
-      fetchLocation(true);
-    }
   };
 
   const takePicture = () => {
@@ -577,11 +573,25 @@ export default function HandoverFormScreen({ route, navigation }) {
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     // Guard double-tap
     if (loading || isSubmittingRef.current) return;
 
     // 1. Validasi Info Dasar & Odometer
+    if (!location) {
+      showValidationError("GPS Belum Siap", "Lokasi belum terdeteksi. Silakan periksa status GPS Anda sebelum mengirim laporan.");
+      return;
+    }
+
+    // Pengecekan instan: Pastikan GPS masih menyala saat ini
+    const isServiceEnabled = await Location.hasServicesEnabledAsync().catch(() => true);
+    if (!isServiceEnabled) {
+      setLocation(null);
+      setGpsError("Layanan lokasi (GPS) dimatikan.");
+      showValidationError("GPS Dimatikan", "Sistem mendeteksi GPS Anda telah dimatikan. Harap nyalakan kembali dan perbarui lokasi di Info Perjalanan.");
+      return;
+    }
+
     if (!noPolisi || !odoMeter || !shift) {
       showValidationError("Perhatian", "Informasi perjalanan (Plat, Shift, Odo Meter) tidak boleh kosong.");
       return;
@@ -675,9 +685,6 @@ export default function HandoverFormScreen({ route, navigation }) {
       }
 
       let currentLoc = location;
-      if (!currentLoc) {
-        currentLoc = await fetchLocation(true);
-      }
 
       if (currentLoc) {
         formData.append('locationLat', currentLoc.latitude);
@@ -811,14 +818,13 @@ export default function HandoverFormScreen({ route, navigation }) {
 
             <View style={tw`bg-white rounded-xl shadow-sm border border-red-100 p-1`}>
               <TextInput
-                style={[tw`p-3 text-sm text-gray-800 font-medium`, { minHeight: 80 }]}
+                style={[tw`p-3 text-sm text-gray-800 font-medium`, { minHeight: 80, textAlignVertical: 'top' }]}
                 placeholder="Ketik detail kerusakan di sini... (Opsional)"
                 placeholderTextColor="#9CA3AF"
                 value={item.catatan}
                 onChangeText={(text) => updateItemCatatan(originalIdx, text)}
                 multiline
-                scrollEnabled={false} // Supaya otomatis memanjang ke bawah
-                textAlignVertical="top"
+                maxLength={500}
               />
             </View>
 
@@ -882,26 +888,14 @@ export default function HandoverFormScreen({ route, navigation }) {
       )}
 
       <View style={[tw`flex-1 relative`, Platform.OS === 'web' ? { height: '100vh', maxHeight: '100vh', overflow: 'hidden' } : {}]}>
-        <View style={tw`z-10 rounded-b-[40px] shadow-xl bg-white overflow-hidden`}>
-          <LinearGradient colors={PERTAMINA_BLUE} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={tw`pt-8 pb-10 px-6 rounded-b-[40px]`}>
-            <View style={tw`w-full flex-row items-center justify-between`}>
-              <View style={tw`flex-row items-center`}>
-                <TouchableOpacity onPress={handleBackPress} style={tw`p-3 bg-white/20 rounded-2xl mr-4 border border-white/30`}>
-                  <Ionicons name="arrow-back" size={24} color="white" />
-                </TouchableOpacity>
-                <View>
-                  <Text style={tw`text-3xl font-extrabold text-white tracking-tight`}>Form Handover</Text>
-                  <Text style={tw`text-blue-100 font-medium text-sm mt-1 flex-row items-center`}>
-                    <Ionicons name="location" size={14} color="#93C5FD" /> Area TBBM Pertamina
-                  </Text>
-                </View>
-              </View>
-              <View style={tw`bg-white/20 p-3 rounded-2xl border border-white/30`}>
-                <Ionicons name="document-text" size={28} color="white" />
-              </View>
-            </View>
-          </LinearGradient>
-        </View>
+        <WebNavbar
+          user={user}
+          title="Form Handover"
+          subtitle="Pemeriksaan & Serah Terima Truk Tangki"
+          showBack={true}
+          onBack={handleBackPress}
+          navigation={navigation}
+        />
 
         <ScrollView
           style={tw`flex-1`}
@@ -922,31 +916,21 @@ export default function HandoverFormScreen({ route, navigation }) {
 
               {/* GPS Detail di Samping Info Perjalanan */}
               <TouchableOpacity
-                onPress={() => fetchLocation(false)}
-                disabled={gpsLoading}
+                onPress={() => setShowGpsModal(true)}
                 activeOpacity={0.7}
                 style={tw`flex-row items-center bg-white border ${location ? 'border-emerald-200' : 'border-amber-200'} px-3 py-2 rounded-2xl shadow-sm`}
               >
                 <View style={tw`w-7 h-7 rounded-xl ${location ? 'bg-emerald-500' : 'bg-amber-500'} items-center justify-center mr-2.5 flex-shrink-0 shadow-sm`}>
-                  {gpsLoading ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" style={{ transform: [{ scale: 0.65 }] }} />
-                  ) : (
-                    <Ionicons name={location ? "location" : "navigate"} size={13} color="#FFFFFF" />
-                  )}
+                  <Ionicons name={location ? "location" : "navigate"} size={13} color="#FFFFFF" />
                 </View>
                 <View style={tw`justify-center`}>
                   <View style={tw`flex-row items-center`}>
                     <Text style={tw`text-xs font-black ${location ? 'text-emerald-800' : 'text-amber-800'} tracking-tight`}>
-                      {location ? 'GPS Terdeteksi' : (gpsLoading ? 'Mencari...' : 'GPS Mencari')}
+                      {location ? 'GPS Terdeteksi' : 'GPS Belum Siap'}
                     </Text>
-                    {!gpsLoading && (
-                      <Feather name="refresh-cw" size={9} color={location ? "#059669" : "#D97706"} style={tw`ml-1.5 opacity-60`} />
-                    )}
                   </View>
                   <Text style={tw`text-[10px] font-bold text-gray-500 font-mono mt-0.5`}>
-                    {location
-                      ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`
-                      : (gpsError || 'Ketuk periksa')}
+                    Ketuk untuk detail
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -1418,122 +1402,102 @@ export default function HandoverFormScreen({ route, navigation }) {
       </Modal>
 
       {/* MODAL KONFIRMASI KELUAR (UNSAVED CHANGES) */}
-      <Modal visible={showExitConfirmModal} transparent={true} animationType="fade" onRequestClose={() => setShowExitConfirmModal(false)}>
-        <View style={tw`flex-1 justify-center items-center bg-black/60 px-6`}>
-          <View style={tw`bg-white w-full max-w-sm rounded-[30px] p-8 items-center shadow-2xl relative overflow-hidden`}>
-            <View style={tw`w-20 h-20 bg-amber-50 rounded-full items-center justify-center mb-5 border-4 border-amber-100`}>
-              <Ionicons name="warning-outline" size={48} color="#D97706" />
-            </View>
-            <Text style={tw`text-2xl font-black text-gray-800 mb-2 text-center tracking-tight`}>Keluar dari Form?</Text>
-            <Text style={tw`text-gray-500 text-center mb-8 font-medium leading-6 px-2`}>
-              Checklist dan foto yang telah Anda ambil akan hilang jika Anda meninggalkan halaman ini.
-            </Text>
-            <View style={tw`flex-row w-full`}>
-              <TouchableOpacity
-                style={tw`flex-1 bg-gray-100 py-4 rounded-2xl mr-2 items-center`}
-                onPress={() => setShowExitConfirmModal(false)}
-              >
-                <Text style={tw`text-gray-700 font-bold`}>Lanjut Isi</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={tw`flex-1 bg-[#ED1C24] py-4 rounded-2xl ml-2 items-center shadow-md`}
-                onPress={() => {
-                  setShowExitConfirmModal(false);
-                  goToDashboard();
-                }}
-              >
-                <Text style={tw`text-white font-bold`}>Ya, Keluar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <AppModal
+        visible={showExitConfirmModal}
+        type="warning"
+        tone="error"
+        title="Keluar dari Form?"
+        message="Checklist dan foto yang telah Anda ambil akan hilang jika Anda meninggalkan halaman ini."
+        secondaryText="Lanjut Isi"
+        onSecondary={() => setShowExitConfirmModal(false)}
+        primaryText="Ya, Keluar"
+        onPrimary={() => {
+          setShowExitConfirmModal(false);
+          goToDashboard();
+        }}
+        onClose={() => setShowExitConfirmModal(false)}
+      />
 
       {/* MODAL KONFIRMASI SUBMIT */}
-      <Modal visible={showConfirmSubmitModal} transparent={true} animationType="fade" onRequestClose={() => setShowConfirmSubmitModal(false)}>
-        <View style={tw`flex-1 justify-center items-center bg-black/60 px-6`}>
-          <View style={tw`bg-white w-full max-w-sm rounded-[30px] p-8 items-center shadow-2xl relative overflow-hidden`}>
-            <View style={tw`w-20 h-20 bg-blue-50 rounded-full items-center justify-center mb-5 border-4 border-blue-100`}>
-              <Ionicons name="help-circle" size={48} color="#0055A5" />
-            </View>
-            <Text style={tw`text-2xl font-black text-gray-800 mb-2 text-center tracking-tight`}>Konfirmasi Kirim</Text>
-            <Text style={tw`text-gray-500 text-center mb-8 font-medium leading-6 px-2`}>
-              Apakah Anda yakin seluruh data sudah benar dan ingin mengirim laporan {type === 'akhiri' ? 'akhir' : 'mulai'} perjalanan ini?
-            </Text>
-            <View style={tw`flex-row w-full`}>
-              <TouchableOpacity
-                style={tw`flex-1 bg-gray-100 py-4 rounded-2xl mr-2 items-center`}
-                onPress={() => setShowConfirmSubmitModal(false)}
-              >
-                <Text style={tw`text-gray-600 font-bold`}>Periksa Lagi</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={tw`flex-1 bg-[#0055A5] py-4 rounded-2xl ml-2 items-center shadow-md`}
-                onPress={confirmAndSubmit}
-              >
-                <Text style={tw`text-white font-bold`}>Ya, Kirim</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <AppModal
+        visible={showConfirmSubmitModal}
+        type="confirm"
+        title="Konfirmasi Pengiriman"
+        message={`Apakah seluruh data Handover sudah benar dan siap dikirim sebagai laporan ${type === 'akhiri' ? 'akhir' : 'mulai'} perjalanan?`}
+        secondaryText="Periksa Lagi"
+        onSecondary={() => setShowConfirmSubmitModal(false)}
+        primaryText="Ya, Kirim"
+        onPrimary={confirmAndSubmit}
+        onClose={() => setShowConfirmSubmitModal(false)}
+      />
 
       {/* MODAL SUKSES (BERHASIL KIRIM) */}
-      <Modal visible={showSuccessModal} transparent={true} animationType="fade">
-        <View style={tw`flex-1 justify-center items-center bg-slate-900/80 px-6`}>
-          <View style={tw`bg-white w-full max-w-sm rounded-[40px] p-8 items-center shadow-2xl border border-white/20`}>
-            {submittedWithMajorIssue ? (
-              <>
-                <View style={tw`w-28 h-28 bg-red-50 rounded-full items-center justify-center mb-6 border-8 border-red-100`}>
-                  <Ionicons name="warning" size={60} color="#E74C3C" />
-                </View>
-                <Text style={tw`text-3xl font-black text-red-600 mb-3 text-center tracking-tight`}>Perhatian!</Text>
-                <Text style={tw`text-gray-500 text-center mb-8 font-medium leading-6`}>
-                  Laporan Anda tersimpan. Karena terdapat temuan kerusakan MAJOR, kendaraan ini otomatis <Text style={tw`font-bold text-red-600`}>DIBLOKIR</Text> dan tidak dapat digunakan.
-                </Text>
-              </>
-            ) : (
-              <>
-                <View style={tw`w-28 h-28 bg-green-50 rounded-full items-center justify-center mb-6 border-8 border-green-100`}>
-                  <Ionicons name="checkmark-done" size={60} color="#2ECC71" />
-                </View>
-                <Text style={tw`text-3xl font-black text-gray-800 mb-3 text-center tracking-tight`}>Berhasil!</Text>
-                <Text style={tw`text-gray-500 text-center mb-8 font-medium leading-6`}>
-                  Laporan Handover kendaraan Anda telah tersimpan dengan aman ke server Pertamina.
-                </Text>
-              </>
-            )}
-            <ActivityIndicator size="large" color="#4A90E2" />
-            <Text style={tw`text-gray-400 text-xs mt-4 font-bold tracking-widest uppercase`}>Kembali otomatis...</Text>
-          </View>
+      <AppModal
+        visible={showSuccessModal}
+        type={submittedWithMajorIssue ? 'warning' : 'success'}
+        tone={submittedWithMajorIssue ? 'error' : 'success'}
+        badge={submittedWithMajorIssue ? 'Kendaraan Diblokir' : null}
+        title={submittedWithMajorIssue ? 'Perhatian!' : 'Berhasil!'}
+        message={
+          submittedWithMajorIssue ? (
+            <Text>
+              Laporan Anda tersimpan. Karena terdapat temuan kerusakan MAJOR, kendaraan ini otomatis{' '}
+              <Text style={tw`font-bold text-red-600`}>DIBLOKIR</Text> dan tidak dapat digunakan.
+            </Text>
+          ) : (
+            'Laporan Handover kendaraan Anda telah tersimpan dengan aman ke server Pertamina.'
+          )
+        }
+      >
+        <View style={tw`items-center mt-2`}>
+          <ActivityIndicator size="small" color="#4A90E2" />
+          <Text style={tw`text-gray-400 text-[11px] mt-3 font-bold tracking-widest uppercase`}>Kembali otomatis...</Text>
         </View>
-      </Modal>
+      </AppModal>
 
       {/* MODAL VALIDASI ERROR (CUSTOM) */}
-      <Modal visible={validationModalVisible} transparent={true} animationType="fade" onRequestClose={() => setValidationModalVisible(false)}>
-        <View style={tw`flex-1 justify-center items-center bg-black/60 px-6`}>
-          <View style={tw`bg-white w-full max-w-sm rounded-[30px] p-8 items-center shadow-2xl relative overflow-hidden`}>
-            {/* Watermark Logo Samar */}
-            <TextLogo style={[tw`absolute opacity-10`, { top: -20, right: -40, transform: [{ scale: 1.2 }] }]} />
+      <AppModal
+        visible={validationModalVisible}
+        type={/gps|izin/i.test(validationTitle || '') ? 'warning' : 'error'}
+        tone={/gps|izin/i.test(validationTitle || '') ? 'warning' : 'error'}
+        title={validationTitle}
+        message={validationMessage}
+        primaryText="Mengerti"
+        onPrimary={() => setValidationModalVisible(false)}
+        onClose={() => setValidationModalVisible(false)}
+      />
 
-            <View style={tw`w-20 h-20 bg-red-50 rounded-full items-center justify-center mb-6 border-4 border-red-100`}>
-              <Ionicons name="alert-circle" size={48} color="#ED1C24" />
-            </View>
-
-            <Text style={tw`text-2xl font-black text-gray-800 mb-2 text-center tracking-tight`}>{validationTitle}</Text>
-            <Text style={tw`text-gray-500 text-center mb-8 font-medium leading-6 px-2`}>
-              {validationMessage}
-            </Text>
-
-            <TouchableOpacity
-              style={tw`w-full bg-[#ED1C24] py-4 rounded-xl items-center shadow-lg shadow-red-500/30`}
-              onPress={() => setValidationModalVisible(false)}
-            >
-              <Text style={tw`text-sm text-white font-black tracking-widest uppercase`}>Mengerti</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* MODAL KETERANGAN LOKASI (GPS) - tidak memanggil GPS saat dibuka */}
+      <AppModal
+        visible={showGpsModal}
+        type="location"
+        tone={location ? 'success' : 'warning'}
+        icon={location ? 'location' : 'locate-outline'}
+        badge={location ? 'GPS Terdeteksi' : 'GPS Belum Terdeteksi'}
+        title="Informasi Lokasi"
+        message={
+          location
+            ? 'Lokasi Anda digunakan untuk watermark foto dan bukti serah terima.'
+            : (gpsError || 'Lokasi belum tersedia. Perbarui lokasi atau periksa pengaturan GPS Anda.')
+        }
+        showClose
+        onClose={() => setShowGpsModal(false)}
+        primaryText={gpsLoading ? 'Memperbarui...' : 'Perbarui Lokasi'}
+        primaryIcon="refresh"
+        primaryLoading={gpsLoading}
+        onPrimary={() => refreshLocation(false)}
+        tertiaryText={!location ? 'Buka Pengaturan' : undefined}
+        onTertiary={() => Linking.openSettings()}
+      >
+        <AppModalDetail
+          tone={location ? 'success' : 'warning'}
+          rows={[
+            { label: 'Koordinat', mono: true, value: location ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}` : '-' },
+            { label: 'Akurasi', mono: true, value: location ? `± ${location.accuracy.toFixed(1)} meter` : '-' },
+            { label: 'Terakhir Diperbarui', mono: true, value: gpsUpdatedAt ? `${gpsUpdatedAt.getHours().toString().padStart(2, '0')}:${gpsUpdatedAt.getMinutes().toString().padStart(2, '0')}:${gpsUpdatedAt.getSeconds().toString().padStart(2, '0')}` : '-' },
+          ]}
+        />
+      </AppModal>
 
     </SafeAreaView>
   );

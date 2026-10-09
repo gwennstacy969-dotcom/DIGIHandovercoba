@@ -1,7 +1,6 @@
 {
   "cli": {
-    "version": ">= 24.8.0",
-    "appVersionSource": "remote"
+    "version": ">= 12.0.0"
   },
   "build": {
     "development": {
@@ -10,12 +9,20 @@
     },
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://pertamina-handover.duckdns.org"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
-      "autoIncrement": true
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://pertamina-handover.duckdns.org"
+      },
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {

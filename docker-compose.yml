@@ -6,8 +6,8 @@ services:
     container_name: pertamina_handover_mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: handover_pertamina
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-handover_pertamina}
     ports:
       - "3306:3306"
     volumes:
@@ -43,10 +43,10 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=mysql://root:rootpassword@mysql:3306/handover_pertamina
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=super_secret_jwt_key_pertamina_2026
-      - REFRESH_SECRET=super_secret_refresh_jwt_key_2026
+      - DATABASE_URL=${DATABASE_URL:-mysql://root:${MYSQL_ROOT_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-handover_pertamina}}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - JWT_SECRET=${JWT_SECRET}
+      - REFRESH_SECRET=${REFRESH_SECRET}
     depends_on:
       mysql:
         condition: service_healthy

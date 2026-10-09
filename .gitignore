@@ -1,63 +1,10 @@
-# Dependencies
 node_modules/
-backend/node_modules/
-frontend/node_modules/
-package-lock.json
-
-# Environment Variables & Secrets
-.env
-.env.*
-!.env.example
-
-# Logs & Databases
-logs/
-backend/logs/
-*.log
-*.sql
-*.sqlite
-*.sqlite3
-*.db
-*.db-journal
-
-# Excel, CSV & Temporary Data
-data/
-*.xlsx
-*.csv
-*.tmp
-
-# Expo & React Native Build Artifacts
-.expo/
-backend/.expo/
-frontend/.expo/
-.expo-shared/
-dist/
-web-build/
-
-# IDE & Editor Configs
 .vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
-# Scratch & Migration Patch Scripts
-scratch/
-backend/scratch/
-frontend/scratch/
-fix_*.js
-replace*.js
-frontend/fix_*.js
-frontend/replace*.js
-frontend/.claude/
-implementation_plan.md
-
-# Screenshots & Presentation Assets (Not needed for app execution)
-screenshots/
-foto perbaikan/
-tampilan aplikasi DIGIHandover/
 *.rar
 *.zip
-
-# Local Reference Data
-daftar_plat_nomor.txt
+*.pptx
+tampilan aplikasi DIGIHandover/
+frontend/.expo/
+frontend/dist/
+frontend/web-build/
+.claude/

@@ -1,9 +1,10 @@
+// @ts-nocheck
 import WebSidebar from '../../components/WebSidebar';
 import WebNavbar from '../../components/WebNavbar';
 import Toast from 'react-native-toast-message';
 import React, { useState, useEffect } from 'react';
 import { API_URL } from '../../config';
-import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, ActivityIndicator, TextInput, ScrollView } from 'react-native';
 import tw from 'twrnc';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,7 +13,7 @@ import axios from 'axios';
 
 const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
 
-const API_BASE = `${API_URL}/api`;
+const API_BASE = { toString: () => `${API_URL}/api` };
 
 const { Dimensions } = require('react-native');
 import { useRoleGuard } from '../../hooks/useRoleGuard';
@@ -22,7 +23,10 @@ import { handleLogoutAndReset } from '../../utils/authHelper';
 export default function IssueListScreen({ navigation }) {
   useRoleGuard(['SUPER_ADMIN', 'ADMIN', 'PENGAWAS', 'AMT']);
   const [issues, setIssues] = useState([]);
+  const [filteredIssues, setFilteredIssues] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [issueFilter, setIssueFilter] = useState('current');
   const [screenWidth, setScreenWidth] = useState(Dimensions.get('window').width);
 
   useEffect(() => {
@@ -78,30 +82,54 @@ export default function IssueListScreen({ navigation }) {
       const { default: AsyncStorage } = await import('@react-native-async-storage/async-storage');
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) setUser(JSON.parse(userStr));
-      fetchIssues();
+      // Data will be fetched via useEffect listening to issueFilter
     };
     loadData();
   }, []);
 
+  useEffect(() => {
+    fetchIssues();
+  }, [issueFilter]);
+
+  // Handle Search Filtering
+  useEffect(() => {
+    if (!issues) return;
+    if (!searchQuery.trim()) {
+      setFilteredIssues(issues);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase();
+    const filtered = issues.filter(item => {
+      const noPolisiMatch = item.noPolisi && item.noPolisi.toLowerCase().includes(query);
+      const userMatch = item.user?.name && item.user.name.toLowerCase().includes(query);
+      const amt1Match = item.shiftDetails?.amt1 && item.shiftDetails.amt1.toLowerCase().includes(query);
+      const amt2Match = item.shiftDetails?.amt2 && item.shiftDetails.amt2.toLowerCase().includes(query);
+      return noPolisiMatch || userMatch || amt1Match || amt2Match;
+    });
+
+    setFilteredIssues(filtered);
+  }, [searchQuery, issues]);
+
   const fetchIssues = async () => {
     setLoading(true);
     try {
-      const [vehicleRes, issueRes] = await Promise.all([
-        axios.get(`${API_BASE}/vehicles`),
-        axios.get(`${API_BASE}/issues/ongoing`)
-      ]);
+      const endpoint = issueFilter === 'current' ? `${API_BASE}/issues/ongoing` : `${API_BASE}/issues/`;
+      const res = await axios.get(endpoint);
 
-      const activePolisi = vehicleRes.data.map(v => v.noPolisi);
-
-      const activeIssues = issueRes.data
+      const fetchedIssues = res.data
         .map(issue => ({
           ...issue.handover,
           issueId: issue.id,
-          issueStatus: issue.status
+          issueStatus: issue.status,
+          resolvedBy: issue.resolvedBy,
+          resolvedAt: issue.resolvedAt,
+          issueCreatedAt: issue.createdAt // For sorting
         }))
-        .filter(h => activePolisi.includes(h.noPolisi));
+        // Sort descending by issue creation time or handover timestamp
+        .sort((a, b) => new Date(b.issueCreatedAt || b.timestamp) - new Date(a.issueCreatedAt || a.timestamp));
 
-      setIssues(activeIssues);
+      setIssues(fetchedIssues);
     } catch (error) {
       console.error(error);
     } finally {
@@ -146,10 +174,13 @@ export default function IssueListScreen({ navigation }) {
   };
 
   const renderItem = ({ item }) => {
+    const isResolved = item.issueStatus === 'RESOLVED';
+    const isPending = item.issueStatus === 'PENDING_APPROVAL';
+
     return (
       <TouchableOpacity
         style={[
-          tw`bg-white p-5 rounded-2xl mb-4 shadow-md border border-red-300 bg-red-50/50`,
+          tw`bg-white p-5 rounded-2xl mb-4 shadow-sm border ${isResolved ? 'border-blue-200' : (isPending ? 'border-orange-200' : 'border-red-200')}`,
           isLargeScreen ? { width: 'calc(33.333% - 11px)' } : tw`w-full`
         ]}
         onPress={() => { if (user?.role === 'SUPER_ADMIN' || user?.role === 'PENGAWAS' || user?.role === 'ADMIN') navigation.navigate('IssueDetail', { issueId: item.issueId }); }}
@@ -157,30 +188,46 @@ export default function IssueListScreen({ navigation }) {
       >
         <View style={tw`flex-row justify-between items-start mb-3 gap-2`}>
           <View style={[tw`flex-row items-center flex-1 mr-2`, { minWidth: 0 }]}>
-            <View style={[tw`w-12 h-12 rounded-full items-center justify-center mr-3 bg-red-200`, { flexShrink: 0 }]}>
-              <Ionicons name="build" size={26} color="#991B1B" />
+            <View style={[tw`w-12 h-12 rounded-full items-center justify-center mr-3 ${isResolved ? 'bg-blue-50' : (isPending ? 'bg-orange-50' : 'bg-red-50')}`, { flexShrink: 0 }]}>
+              <Ionicons name={isResolved ? 'checkmark-circle' : 'build'} size={26} color={isResolved ? '#0055A5' : (isPending ? '#F59E0B' : '#991B1B')} />
             </View>
             <View style={[tw`flex-1`, { minWidth: 0 }]}>
-              <Text style={tw`text-xl font-black text-red-900 tracking-tight`}>{item.noPolisi}</Text>
+              <Text style={tw`text-xl font-black ${isResolved ? 'text-blue-900' : 'text-red-900'} tracking-tight`}>{item.noPolisi}</Text>
               <Text style={tw`text-xs font-bold text-gray-500 mt-0.5`} numberOfLines={1} ellipsizeMode="tail">
                 Pelapor: {item.user?.name || '-'}
               </Text>
             </View>
           </View>
-          <View style={[tw`px-2.5 py-1 rounded-full ${item.issueStatus === 'PENDING_APPROVAL' ? 'bg-orange-500' : 'bg-red-600'}`, { flexShrink: 0 }]}>
-            <Text style={tw`text-[11px] font-bold text-white tracking-wide`}>
-              {item.issueStatus === 'PENDING_APPROVAL' ? 'PERSETUJUAN' : 'SEDANG DIPERBAIKI'}
+          <View style={[tw`px-3 py-1.5 rounded-full ${isResolved ? 'bg-[#0055A5]' : (isPending ? 'bg-orange-500' : 'bg-red-600')}`, { flexShrink: 0 }]}>
+            <Text style={tw`text-xs font-bold text-white`}>
+              {isResolved ? 'SELESAI' : (isPending ? 'PERSETUJUAN' : 'SEDANG DIPERBAIKI')}
             </Text>
           </View>
         </View>
 
         <Text style={tw`text-xs font-medium text-gray-400 mb-2`}>Inspeksi Terakhir: {new Date(item.timestamp).toLocaleString('id-ID')}</Text>
 
-        <View style={tw`mt-2 bg-red-100 p-3 rounded-xl border border-red-200`}>
-          <Text style={tw`text-red-800 font-bold mb-1 text-sm`}>Isu Ditemukan:</Text>
+        <View style={tw`mt-2 ${isResolved ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'} p-3 rounded-xl border`}>
+          <Text style={tw`${isResolved ? 'text-blue-800' : 'text-red-800'} font-bold mb-1 text-sm`}>Isu Ditemukan:</Text>
           {item.items && item.items.filter(i => !i.isGood).map((issue, idx) => (
-            <Text key={idx} style={tw`text-red-700 text-xs my-1 font-medium`}>• {issue.name}</Text>
+            <Text key={idx} style={tw`${isResolved ? 'text-blue-700' : 'text-red-700'} text-xs my-1 font-medium`}>• {issue.name}</Text>
           ))}
+        </View>
+
+        {isResolved && (
+          <View style={tw`mt-3 bg-white p-3 rounded-xl border border-gray-100 flex-row justify-between items-center`}>
+            <View>
+              <Text style={tw`text-gray-600 text-xs mb-0.5`}>Diselesaikan oleh: <Text style={tw`font-bold text-gray-800`}>{item.resolvedBy || '-'}</Text></Text>
+              {item.resolvedAt && (
+                <Text style={tw`text-gray-500 text-[10px]`}>{new Date(item.resolvedAt).toLocaleString('id-ID')}</Text>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Footer (Lihat Detail) to match HistoryScreen */}
+        <View style={tw`flex-row items-center justify-end mt-3 pt-3 border-t border-gray-100`}>
+          <Text style={tw`text-[#0055A5] font-bold text-xs`}>Lihat Detail & Preview {'>'}</Text>
         </View>
       </TouchableOpacity>
     );
@@ -222,11 +269,64 @@ export default function IssueListScreen({ navigation }) {
             navigation={navigation}
           />
 
-          <FlatList key={numCols} numColumns={numCols} columnWrapperStyle={isLargeScreen ? tw`justify-start gap-4` : undefined}
-            style={tw`flex-1`}
-            contentContainerStyle={tw`p-6 pb-20 w-full max-w-7xl mx-auto`}
-            data={issues}
-            keyExtractor={(item) => item.id.toString()}
+          {/* SEARCH & FILTER SECTION */}
+          <View style={tw`px-4 md:px-6 pt-6 pb-2 z-10`}>
+            {/* Search Bar */}
+            <View style={tw`flex-row items-center bg-white border border-gray-200 rounded-2xl px-4 py-3 mb-4 shadow-sm`}>
+              <Ionicons name="search-outline" size={20} color="#6B7280" />
+              <TextInput
+                style={[tw`flex-1 ml-3 text-sm text-gray-800`, Platform.OS === 'web' ? { outline: 'none' } : {}]}
+                placeholder="Cari No. Polisi atau Nama AMT..."
+                placeholderTextColor="#9CA3AF"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')} style={tw`p-1`}>
+                  <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Filter Pills */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={tw`flex-row`}>
+              <TouchableOpacity
+                style={tw`px-4 py-2 rounded-full mr-2 border ${issueFilter === 'current' ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-white border-gray-200'}`}
+                onPress={() => setIssueFilter('current')}
+              >
+                <View style={tw`flex-row items-center`}>
+                  <Ionicons name="warning-outline" size={16} color={issueFilter === 'current' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                  <Text style={tw`text-xs font-bold ${issueFilter === 'current' ? 'text-white' : 'text-gray-500'}`}>
+                    Isu Terkini{issueFilter === 'current' ? `  ${filteredIssues.length}` : ''}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={tw`px-4 py-2 rounded-full mr-4 border ${issueFilter === 'all' ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-white border-gray-200'}`}
+                onPress={() => setIssueFilter('all')}
+              >
+                <View style={tw`flex-row items-center`}>
+                  <Ionicons name="layers-outline" size={16} color={issueFilter === 'all' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                  <Text style={tw`text-xs font-bold ${issueFilter === 'all' ? 'text-white' : 'text-gray-500'}`}>
+                    Semua Isu{issueFilter === 'all' ? `  ${filteredIssues.length}` : ''}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+
+          {loading ? (
+            <View style={tw`flex-1 justify-center items-center`}>
+              <ActivityIndicator size="large" color="#0055A5" />
+              <Text style={tw`mt-2 text-gray-500 font-bold tracking-widest uppercase text-xs`}>Memuat Isu...</Text>
+            </View>
+          ) : (
+            <FlatList key={numCols} numColumns={numCols} columnWrapperStyle={isLargeScreen ? tw`justify-start gap-4` : undefined}
+              style={tw`flex-1`}
+              contentContainerStyle={tw`px-6 pb-20 w-full max-w-7xl mx-auto pt-2`}
+            data={filteredIssues}
+            keyExtractor={(item) => item.id ? item.id.toString() : (item.issueId || Math.random()).toString()}
             renderItem={renderItem}
             initialNumToRender={Platform.OS === 'web' ? 100 : 20}
             maxToRenderPerBatch={Platform.OS === 'web' ? 50 : 20}
@@ -235,11 +335,23 @@ export default function IssueListScreen({ navigation }) {
             showsVerticalScrollIndicator={true}
             ListEmptyComponent={
               <View style={tw`items-center mt-20`}>
-                <Ionicons name="checkmark-circle-outline" size={60} color="#CBD5E1" />
-                <Text style={tw`text-center text-gray-400 font-bold mt-4 text-lg`}>Tidak ada isu ditemukan. Semua aman.</Text>
+                <Ionicons name={issueFilter === 'current' ? "checkmark-circle-outline" : "file-tray-outline"} size={60} color="#CBD5E1" />
+                <Text style={tw`text-center text-gray-600 font-black mt-4 text-xl`}>
+                  {searchQuery.trim() !== ''
+                    ? "Pencarian Tidak Ditemukan"
+                    : (issueFilter === 'current' ? "Tidak Ada Isu Terkini" : "Belum Ada Riwayat Isu")}
+                </Text>
+                <Text style={tw`text-center text-gray-400 font-medium mt-2 text-sm max-w-[80%]`}>
+                  {searchQuery.trim() !== ''
+                    ? `Tidak ada hasil pencarian untuk "${searchQuery}". Coba kata kunci lain.`
+                    : (issueFilter === 'current'
+                        ? "Semua kendaraan saat ini dalam kondisi terkendali."
+                        : "Belum terdapat riwayat isu pada sistem.")}
+                </Text>
               </View>
             }
           />
+          )}
 
         </View>
       </SafeAreaView>

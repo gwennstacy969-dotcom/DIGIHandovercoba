@@ -15,10 +15,14 @@ import WebNavbar from '../../components/WebNavbar';
 import { handleLogoutAndReset } from '../../utils/authHelper';
 import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
 
-const getPhotoUrl = (path) => {
-  if (!path) return `${API_URL}/uploads/default.png`;
+const getPhotoUrl = (path, token) => {
+  if (!path) return `${API_URL}/uploads/default.png${token ? '?token=' + token : ''}`;
   const cleanPath = path.replace(/\\/g, '/');
-  return cleanPath.startsWith('http') ? cleanPath : `${API_URL}/${cleanPath.replace(/^\/+/, '')}`;
+  let url = cleanPath.startsWith('http') ? cleanPath : `${API_URL}/${cleanPath.replace(/^\/+/, '')}`;
+  if (token && !url.includes('?token=')) {
+    url += `?token=${token}`;
+  }
+  return url;
 };
 
 export default function FixVerificationScreen({ route, navigation }) {
@@ -32,6 +36,7 @@ export default function FixVerificationScreen({ route, navigation }) {
   const [screenWidth, setScreenWidth] = useState(Dimensions.get('window').width);
   const isLargeScreen = screenWidth >= 768;
   const [user, setUser] = useState(null);
+  const [authToken, setAuthToken] = useState('');
 
   useEffect(() => {
     const onChange = ({ window }) => setScreenWidth(window.width);
@@ -43,6 +48,7 @@ export default function FixVerificationScreen({ route, navigation }) {
     AsyncStorage.getItem('user').then(str => {
       if (str) setUser(JSON.parse(str));
     });
+    AsyncStorage.getItem('token').then(t => setAuthToken(t || ''));
   }, []);
 
   const handleLogout = async () => {
@@ -406,7 +412,7 @@ export default function FixVerificationScreen({ route, navigation }) {
                         style={tw`relative rounded-xl overflow-hidden`}
                       >
                         <Image 
-                          source={{ uri: getPhotoUrl(damagePhoto.previewUrl || damagePhoto.url) }}
+                          source={{ uri: getPhotoUrl(damagePhoto.previewUrl || damagePhoto.url, authToken) }}
                           style={tw`w-full h-36 rounded-xl bg-gray-100`} 
                           resizeMode="cover" 
                         />
@@ -641,7 +647,7 @@ export default function FixVerificationScreen({ route, navigation }) {
             <View style={tw`w-full h-full justify-center items-center p-4 pt-24`}>
               <View style={tw`w-full h-[80%] bg-black/40 rounded-3xl overflow-hidden border border-white/10 relative justify-center items-center`}>
                 <Image
-                  source={{ uri: getPhotoUrl(selectedPreviewPhoto.url) }}
+                  source={{ uri: getPhotoUrl(selectedPreviewPhoto.url, authToken) }}
                   style={[tw`w-full h-full`, { transform: [{ rotate: `${previewRotation}deg` }] }]}
                   resizeMode="contain"
                 />

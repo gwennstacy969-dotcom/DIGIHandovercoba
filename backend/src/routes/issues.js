@@ -10,8 +10,24 @@ const upload = multer({ storage: multer.memoryStorage() });
 // 1. GET Ongoing Issues
 router.get('/ongoing', authenticateToken, async (req, res) => {
   try {
+    const { role, id: userId } = req.user;
+
+    if (!['ADMIN', 'SUPER_ADMIN', 'PENGAWAS', 'AMT'].includes(role)) {
+      return res.status(403).json({ error: 'Akses ditolak' });
+    }
+
+    const where = {
+      status: { in: ['ONGOING', 'PENDING_APPROVAL'] }
+    };
+
+    if (role === 'AMT') {
+      where.handover = {
+        userId: userId
+      };
+    }
+
     const issues = await prisma.issue.findMany({
-      where: { status: { in: ['ONGOING', 'PENDING_APPROVAL'] } },
+      where,
       include: {
         handover: {
           include: { user: true, items: true, photos: true }
@@ -25,8 +41,8 @@ router.get('/ongoing', authenticateToken, async (req, res) => {
   }
 });
 
-// 2. GET All Issues
-router.get('/', authenticateToken, async (req, res) => {
+// 2. GET All Issues (Hanya untuk Admin & Pengawas)
+router.get('/', authenticateToken, authorizeRole(['ADMIN', 'SUPER_ADMIN', 'PENGAWAS']), async (req, res) => {
   try {
     const issues = await prisma.issue.findMany({
       include: {
@@ -84,6 +100,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (!issue) {
       return res.status(404).json({ error: 'Isu tidak ditemukan' });
     }
+
+    if (['USER', 'AMT'].includes(req.user.role)) {
+      if (issue.handover?.userId !== req.user.id) {
+        return res.status(403).json({ error: 'Tidak ada akses untuk isu ini' });
+      }
+    }
+
     res.json(issue);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -122,10 +145,16 @@ router.put('/:id/resolve', authenticateToken, authorizeRole(['ADMIN', 'SUPER_ADM
         }
       });
       if (!otherOngoing) {
-        await prisma.vehicle.update({
+        const vehicle = await prisma.vehicle.findUnique({
           where: { noPolisi: target.handover.noPolisi },
-          data: { status: 'READY_TO_START' }
+          select: { status: true }
         });
+        if (vehicle && vehicle.status === 'Maintenance') {
+          await prisma.vehicle.update({
+            where: { noPolisi: target.handover.noPolisi },
+            data: { status: 'READY_TO_START' }
+          });
+        }
       }
     }
 
@@ -144,9 +173,16 @@ router.post('/:id/verify-repair', authenticateToken, upload.any(), optimizeImage
           { id: req.params.id },
           { handoverId: req.params.id }
         ]
-      }
+      },
+      include: { handover: true }
     });
     if (!target) return res.status(404).json({ error: 'Issue tidak ditemukan' });
+
+    if (['USER', 'AMT'].includes(req.user.role)) {
+      if (target.handover?.userId !== req.user.id) {
+        return res.status(403).json({ error: 'Tidak ada akses untuk memverifikasi perbaikan ini' });
+      }
+    }
     const issueId = target.id;
     const { itemsData } = req.body;
     const items = JSON.parse(itemsData || '[]');

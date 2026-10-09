@@ -55,7 +55,7 @@ app.use(morgan('combined', { stream: logger.stream }));
 const collectDefaultMetrics = promClient.collectDefaultMetrics;
 collectDefaultMetrics({ register: promClient.register });
 
-app.get('/metrics', async (req, res) => {
+app.get('/metrics', authenticateToken, authorizeRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   res.setHeader('Content-Type', promClient.register.contentType);
   res.send(await promClient.register.metrics());
 });
@@ -83,7 +83,7 @@ app.use('/api', apiLimiter);
 // Body Parsing & Static Assets
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', authenticateToken, express.static(uploadsDir));
 app.use('/barcodes', express.static(barcodesDir));
 
 // Route Controllers untuk Laporan & Analitik

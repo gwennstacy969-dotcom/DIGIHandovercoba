@@ -298,43 +298,29 @@ export default function MessageCenterScreen({ navigation }) {
 
         {/* MAIN CONTENT AREA */}
         <View style={tw`flex-1 relative`}>
-        {isLargeScreen ? (
           <WebNavbar
             user={user}
             title="Pesan & Notifikasi"
             subtitle="Pusat informasi dan pemberitahuan"
             navigation={navigation}
             showBack={true}
+            onBack={() => {
+              if (!user) { navigation.goBack(); return; }
+              if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') {
+                navigation.replace('AdminDashboard');
+              } else if (user.role === 'PENGAWAS') {
+                navigation.replace('PengawasDashboard');
+              } else {
+                navigation.replace('UserDashboard');
+              }
+            }}
             rightAction={
-              <TouchableOpacity onPress={markAllAsRead} style={tw`flex-row items-center bg-[#0055A5] px-4 py-2 rounded-xl shadow-sm`}>
+              <TouchableOpacity onPress={markAllAsRead} style={tw`flex-row items-center bg-[#0055A5] px-3.5 py-2 rounded-xl shadow-sm active:scale-95`}>
                 <Ionicons name="checkmark-done" size={18} color="white" />
-                <Text style={tw`text-white font-bold text-sm ml-1.5`}>Tandai Dibaca</Text>
+                <Text style={tw`text-white font-bold text-xs ml-1.5`}>{isLargeScreen ? 'Tandai Dibaca' : 'Baca Semua'}</Text>
               </TouchableOpacity>
             }
           />
-        ) : (
-          <View style={[tw`flex-row items-center justify-between px-5 py-3 mx-5 mt-4 mb-6 rounded-3xl border border-white/60 relative z-20`, { backgroundColor: 'rgba(255,255,255,0.85)', ...glassStyle, shadowColor: '#3B82F6', shadowOpacity: 0.15, shadowRadius: 25, shadowOffset: {width: 0, height: 10} }]}>
-            <View style={tw`flex-row items-center`}>
-              <TouchableOpacity onPress={() => {
-                if (!user) { navigation.goBack(); return; }
-                if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') {
-                  navigation.replace('AdminDashboard');
-                } else if (user.role === 'PENGAWAS') {
-                  navigation.replace('PengawasDashboard');
-                } else {
-                  navigation.replace('UserDashboard');
-                }
-              }} style={tw`p-2 bg-gray-100 rounded-full mr-4 shadow-sm z-30`}>
-                <Ionicons name="arrow-back" size={24} color="#3B82F6" />
-              </TouchableOpacity>
-              <Text style={tw`text-2xl font-black text-gray-800 tracking-tight z-30`}>Pesan & Notifikasi</Text>
-            </View>
-            
-            <TouchableOpacity onPress={markAllAsRead}>
-               <Ionicons name="checkmark-done" size={24} color="#3B82F6" />
-            </TouchableOpacity>
-          </View>
-        )}
 
         {loading ? (
           <View style={tw`flex-1 items-center justify-center mt-20`}>

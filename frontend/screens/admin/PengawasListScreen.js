@@ -15,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
 
-const API_BASE = `${API_URL}/api`; // Sesuaikan IP backend
+const API_BASE = { toString: () => `${API_URL}/api` }; // Sesuaikan IP backend
 
 const { Dimensions } = require('react-native');
 import { useRoleGuard } from '../../hooks/useRoleGuard';

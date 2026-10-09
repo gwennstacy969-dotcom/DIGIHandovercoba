@@ -25,6 +25,7 @@ export default function HandoverDetailScreen({ route, navigation }) {
   const [handover, setHandover] = useState(initialHandover);
   const [loading, setLoading] = useState(!initialHandover && !!handoverId);
   const [fetchError, setFetchError] = useState(null);
+  const [authToken, setAuthToken] = useState('');
 
   const floatAnim1 = React.useRef(new Animated.Value(0)).current;
   const floatAnim2 = React.useRef(new Animated.Value(0)).current;
@@ -50,6 +51,7 @@ export default function HandoverDetailScreen({ route, navigation }) {
   useEffect(() => {
     const onChange = ({ window }) => setScreenWidth(window.width);
     const subscription = Dimensions.addEventListener('change', onChange);
+    AsyncStorage.getItem('token').then(t => setAuthToken(t || ''));
     return () => subscription?.remove();
   }, []);
 
@@ -78,7 +80,11 @@ export default function HandoverDetailScreen({ route, navigation }) {
         window.open(url, '_blank');
       } else {
         const fileUri = `${FileSystem.documentDirectory}Detail_Handover_${handover.noPolisi || 'Report'}.xlsx`;
-        const downloadRes = await FileSystem.downloadAsync(url, fileUri);
+        const downloadRes = await FileSystem.downloadAsync(url, fileUri, {
+          headers: {
+            'ngrok-skip-browser-warning': 'true'
+          }
+        });
 
         if (downloadRes.status === 200) {
           if (await Sharing.isAvailableAsync()) {
@@ -132,7 +138,11 @@ export default function HandoverDetailScreen({ route, navigation }) {
         window.open(url, '_blank');
       } else {
         const fileUri = `${FileSystem.documentDirectory}Detail_Handover_${handover.noPolisi || 'Report'}.pdf`;
-        const downloadRes = await FileSystem.downloadAsync(url, fileUri);
+        const downloadRes = await FileSystem.downloadAsync(url, fileUri, {
+          headers: {
+            'ngrok-skip-browser-warning': 'true'
+          }
+        });
 
         if (downloadRes.status === 200) {
           if (await Sharing.isAvailableAsync()) {
@@ -184,7 +194,8 @@ export default function HandoverDetailScreen({ route, navigation }) {
       const token = await AsyncStorage.getItem('token');
       const response = await fetch(`${API_URL}/api/handovers/${targetId}`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'ngrok-skip-browser-warning': 'true'
         }
       });
       const data = await response.json();
@@ -331,7 +342,11 @@ export default function HandoverDetailScreen({ route, navigation }) {
       ? photoObjOrString 
       : (photoObjOrString.url || photoObjOrString.previewUrl || photoObjOrString.thumbnailUrl);
     if (!path) return null;
-    return `${API_URL}/${path.replace(/\\/g, '/')}`;
+    let url = `${API_URL}/${path.replace(/\\/g, '/').replace(/^\/+/, '')}`;
+    if (authToken && !url.includes('?token=')) {
+      url += `?token=${authToken}`;
+    }
+    return url;
   };
 
   // Parse items by category

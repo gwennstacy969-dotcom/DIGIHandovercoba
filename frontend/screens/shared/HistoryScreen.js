@@ -31,7 +31,6 @@ export default function HistoryScreen({ route, navigation }) {
   // Filter states (applied)
   const [searchQuery, setSearchQuery] = useState(route?.params?.noPolisi || '');
   const [selectedStatus, setSelectedStatus] = useState('Semua');
-  const [selectedShift, setSelectedShift] = useState('Semua');
   const [selectedMonth, setSelectedMonth] = useState('Semua');
   const [selectedYear, setSelectedYear] = useState('Semua');
   const defaultDateObj = new Date();
@@ -45,7 +44,6 @@ export default function HistoryScreen({ route, navigation }) {
 
   // Temp filter states (inside modal, only applied on TERAPKAN)
   const [tempStatus, setTempStatus] = useState('Semua');
-  const [tempShift, setTempShift] = useState('Semua');
   const [tempMonth, setTempMonth] = useState('Semua');
   const [tempYear, setTempYear] = useState('Semua');
   const [isLogoutVisible, setIsLogoutVisible] = useState(false);
@@ -189,8 +187,8 @@ export default function HistoryScreen({ route, navigation }) {
       let data = res.data.data || res.data; // fallback jika API lama
 
       if (userData && (userData.role === 'AMT' || userData.role === 'USER')) {
-        data = data.filter(h => 
-          h.userId === userData.id || 
+        data = data.filter(h =>
+          h.userId === userData.id ||
           (h.user && h.user.id === userData.id) ||
           (h.amt1 && userData.name && h.amt1.trim().toLowerCase() === userData.name.trim().toLowerCase()) ||
           (h.amt2 && userData.name && h.amt2.trim().toLowerCase() === userData.name.trim().toLowerCase())
@@ -227,25 +225,53 @@ export default function HistoryScreen({ route, navigation }) {
       Toast.show({ type: 'error', text1: 'Akses Ditolak', text2: 'Hanya Admin yang dapat mengekspor laporan.' });
       return;
     }
+    let url = '';
     try {
       const token = await AsyncStorage.getItem('token');
       let queryParams = `?token=${token}`;
       if (selectedStatus && selectedStatus !== 'Semua') queryParams += `&status=${selectedStatus}`;
-      if (selectedShift && selectedShift !== 'Semua') queryParams += `&shift=${selectedShift}`;
+      if (selectedMonth && selectedMonth !== 'Semua') queryParams += `&month=${selectedMonth}`;
+      if (selectedYear && selectedYear !== 'Semua') queryParams += `&year=${selectedYear}`;
       if (startDate && endDate) {
         queryParams += `&startDate=${startDate}&endDate=${endDate}`;
       }
       if (searchQuery && searchQuery.trim() !== '') {
         queryParams += `&search=${encodeURIComponent(searchQuery.trim())}`;
       }
-      const url = `${API_URL}/api/reports/excel${queryParams}`;
+      url = `${API_URL}/api/reports/excel${queryParams}`;
+      
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        'ngrok-skip-browser-warning': 'true'
+      };
+
       if (Platform.OS === 'web') {
-        window.open(url, '_blank');
+        const response = await axios.get(url, { headers, responseType: 'blob' });
+        
+        const contentType = response.headers['content-type'];
+        if (contentType && contentType.includes('text/html')) {
+            throw new Error('Server tidak mengembalikan file Excel yang valid (kemungkinan ngrok warning).');
+        }
+
+        const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = 'Laporan_Handover.xlsx';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(downloadUrl);
+        Toast.show({ type: 'success', text1: 'Sukses', text2: 'File berhasil diunduh.' });
       } else {
         const fileUri = `${FileSystem.documentDirectory}Laporan_Handover.xlsx`;
-        const downloadRes = await FileSystem.downloadAsync(url, fileUri);
+        const downloadRes = await FileSystem.downloadAsync(url, fileUri, { headers });
 
         if (downloadRes.status === 200) {
+          const contentType = downloadRes.headers['Content-Type'] || downloadRes.headers['content-type'];
+          if (contentType && contentType.includes('text/html')) {
+            throw new Error('Server tidak mengembalikan file Excel yang valid (kemungkinan ngrok warning).');
+          }
           if (await Sharing.isAvailableAsync()) {
             try {
               await Sharing.shareAsync(downloadRes.uri, {
@@ -266,7 +292,7 @@ export default function HistoryScreen({ route, navigation }) {
     } catch (err) {
       console.log('Gagal export excel:', err);
       try {
-        if (await Linking.canOpenURL(url)) {
+        if (url && await Linking.canOpenURL(url)) {
           await Linking.openURL(url);
           Toast.show({ type: 'info', text1: 'Membuka Browser', text2: 'File diunduh melalui browser perangkat Anda.' });
           return;
@@ -274,7 +300,7 @@ export default function HistoryScreen({ route, navigation }) {
       } catch (linkErr) {
         console.log('Fallback linking failed:', linkErr);
       }
-      Toast.show({ type: 'error', text1: 'Gagal Mengunduh', text2: 'Tidak dapat mengunduh Excel: ' + err.message });
+      Toast.show({ type: 'error', text1: 'Gagal Mengunduh', text2: 'Tidak dapat mengunduh Excel: ' + (err.response?.data?.message || err.message) });
     }
   };
 
@@ -288,7 +314,8 @@ export default function HistoryScreen({ route, navigation }) {
       const token = await AsyncStorage.getItem('token');
       let queryParams = `?token=${token}`;
       if (selectedStatus && selectedStatus !== 'Semua') queryParams += `&status=${selectedStatus}`;
-      if (selectedShift && selectedShift !== 'Semua') queryParams += `&shift=${selectedShift}`;
+      if (selectedMonth && selectedMonth !== 'Semua') queryParams += `&month=${selectedMonth}`;
+      if (selectedYear && selectedYear !== 'Semua') queryParams += `&year=${selectedYear}`;
       if (startDate && endDate) {
         queryParams += `&startDate=${startDate}&endDate=${endDate}`;
       }
@@ -296,13 +323,39 @@ export default function HistoryScreen({ route, navigation }) {
         queryParams += `&search=${encodeURIComponent(searchQuery.trim())}`;
       }
       url = `${API_URL}/api/reports/pdf${queryParams}`;
+      
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        'ngrok-skip-browser-warning': 'true'
+      };
+
       if (Platform.OS === 'web') {
-        window.open(url, '_blank');
+        const response = await axios.get(url, { headers, responseType: 'blob' });
+        
+        const contentType = response.headers['content-type'];
+        if (contentType && contentType.includes('text/html')) {
+            throw new Error('Server tidak mengembalikan file PDF yang valid (kemungkinan ngrok warning).');
+        }
+
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = 'Laporan_Handover.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(downloadUrl);
+        Toast.show({ type: 'success', text1: 'Sukses', text2: 'File PDF berhasil diunduh.' });
       } else {
         const fileUri = `${FileSystem.documentDirectory}Laporan_Handover.pdf`;
-        const downloadRes = await FileSystem.downloadAsync(url, fileUri);
+        const downloadRes = await FileSystem.downloadAsync(url, fileUri, { headers });
 
         if (downloadRes.status === 200) {
+          const contentType = downloadRes.headers['Content-Type'] || downloadRes.headers['content-type'];
+          if (contentType && contentType.includes('text/html')) {
+            throw new Error('Server tidak mengembalikan file PDF yang valid (kemungkinan ngrok warning).');
+          }
           if (await Sharing.isAvailableAsync()) {
             try {
               await Sharing.shareAsync(downloadRes.uri, {
@@ -323,7 +376,7 @@ export default function HistoryScreen({ route, navigation }) {
     } catch (err) {
       console.log('Gagal export PDF:', err);
       try {
-        if (url && (await Linking.canOpenURL(url))) {
+        if (url && await Linking.canOpenURL(url)) {
           await Linking.openURL(url);
           Toast.show({ type: 'info', text1: 'Membuka Browser', text2: 'File PDF dibuka/diunduh melalui browser perangkat Anda.' });
           return;
@@ -331,7 +384,7 @@ export default function HistoryScreen({ route, navigation }) {
       } catch (linkErr) {
         console.log('Fallback linking failed:', linkErr);
       }
-      Toast.show({ type: 'error', text1: 'Gagal Mengunduh', text2: 'Tidak dapat mengunduh PDF: ' + err.message });
+      Toast.show({ type: 'error', text1: 'Gagal Mengunduh', text2: 'Tidak dapat mengunduh PDF: ' + (err.response?.data?.message || err.message) });
     }
   };
 
@@ -370,7 +423,6 @@ export default function HistoryScreen({ route, navigation }) {
   const hasDateFilter = !!(startDate && endDate);
   const activeFilterCount = [
     selectedStatus !== 'Semua',
-    selectedShift !== 'Semua',
     selectedMonth !== 'Semua',
     selectedYear !== 'Semua',
     hasDateFilter
@@ -379,12 +431,11 @@ export default function HistoryScreen({ route, navigation }) {
   const openFilterModal = () => {
     // Sync temp states from current applied states
     setTempStatus(selectedStatus);
-    setTempShift(selectedShift);
     setTempMonth(selectedMonth);
     setTempYear(selectedYear);
     setTempStartDate(startDate);
     setTempEndDate(endDate);
-    
+
     // Check if the current applied dates match a quick select
     const dObj = new Date();
     const defaultDate = `${dObj.getFullYear()}-${String(dObj.getMonth() + 1).padStart(2, '0')}-${String(dObj.getDate()).padStart(2, '0')}`;
@@ -405,13 +456,12 @@ export default function HistoryScreen({ route, navigation }) {
     } else {
       setTempQuickSelect(null);
     }
-    
+
     setIsFilterVisible(true);
   };
 
   const applyFilters = () => {
     setSelectedStatus(tempStatus);
-    setSelectedShift(tempShift);
     setSelectedMonth(tempMonth);
     setSelectedYear(tempYear);
     setStartDate(tempStartDate);
@@ -421,7 +471,6 @@ export default function HistoryScreen({ route, navigation }) {
 
   const resetTempFilters = () => {
     setTempStatus('Semua');
-    setTempShift('Semua');
     setTempMonth('Semua');
     setTempYear('Semua');
     setTempStartDate('');
@@ -431,7 +480,6 @@ export default function HistoryScreen({ route, navigation }) {
 
   const resetAllFilters = () => {
     setSelectedStatus('Semua');
-    setSelectedShift('Semua');
     setSelectedMonth('Semua');
     setSelectedYear('Semua');
     setStartDate('');
@@ -457,13 +505,12 @@ export default function HistoryScreen({ route, navigation }) {
     }
 
     const isNormal = item.status === 'Siap Operasi (Normal)';
+    const isResolved = item.issue && item.issue.status === 'RESOLVED';
 
     let matchesStatus = true;
     if (selectedStatus === 'Normal') matchesStatus = isNormal;
-    if (selectedStatus === 'Isu') matchesStatus = !isNormal;
-
-    let matchesShift = true;
-    if (selectedShift !== 'Semua') matchesShift = item.shift === selectedShift;
+    if (selectedStatus === 'Isu') matchesStatus = !isNormal && !isResolved;
+    if (selectedStatus === 'Selesai') matchesStatus = isResolved;
 
     let matchesMonth = true;
     if (selectedMonth !== 'Semua') {
@@ -483,7 +530,7 @@ export default function HistoryScreen({ route, navigation }) {
       matchesDateRange = itemDateStr >= startDate && itemDateStr <= endDate;
     }
 
-    return matchesSearch && matchesStatus && matchesShift && matchesMonth && matchesYear && matchesDateRange;
+    return matchesSearch && matchesStatus && matchesMonth && matchesYear && matchesDateRange;
   });
 
   const renderItem = ({ item }) => {
@@ -517,8 +564,8 @@ export default function HistoryScreen({ route, navigation }) {
                 ) : null}
               </View>
               <Text style={tw`text-xs text-gray-500 mt-1`} numberOfLines={1} ellipsizeMode="tail">
-                {item.amt1 
-                  ? `AMT: ${item.amt1}${item.amt2 ? ` & ${item.amt2}` : ''}` 
+                {item.amt1
+                  ? `AMT: ${item.amt1}${item.amt2 ? ` & ${item.amt2}` : ''}`
                   : (item.user ? `${item.user.name}${item.user.jabatan ? ` (${item.user.jabatan})` : ''}` : '-')}
               </Text>
             </View>
@@ -582,53 +629,42 @@ export default function HistoryScreen({ route, navigation }) {
 
       <SafeAreaView style={tw`flex-1 relative ${isLargeScreen ? 'flex-row' : 'flex-col'}`}>
 
-        
+
         {isLargeScreen && user && (
-          <WebSidebar 
-            user={user} 
-            activeMenu={'History'} 
-            navigation={navigation} 
-            handleLogout={handleLogout || (() => { setIsLogoutVisible(true); })} 
-            unreadNotificationsCount={unreadNotificationsCount || 0} 
+          <WebSidebar
+            user={user}
+            activeMenu={'History'}
+            navigation={navigation}
+            handleLogout={handleLogout || (() => { setIsLogoutVisible(true); })}
+            unreadNotificationsCount={unreadNotificationsCount || 0}
           />
         )}
 
         {/* MAIN CONTENT AREA */}
         <View style={[tw`flex-1 relative`, Platform.OS === 'web' ? { height: '100vh', maxHeight: '100vh', overflow: 'hidden' } : {}]}>
-        {/* STICKY NAVBAR (Floating Modern Style) */}
-        {isLargeScreen && user ? (
-          <WebNavbar
-            user={user}
-            title="Lihat Seluruh Laporan"
-            navigation={navigation}
-            showBack={true}
-            rightAction={
-              user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') ? (
-                <>
-                  <View style={tw`flex-row gap-3`}>
-                    <TouchableOpacity onPress={handleExportPdf} style={tw`bg-[#ED1C24] px-4 py-2 rounded-xl flex-row items-center shadow-md active:scale-95`}>
-                      <Ionicons name="document-outline" size={16} color="white" />
-                      <Text style={tw`text-white font-bold text-xs ml-1.5`}>Export PDF</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={handleExportExcel} style={tw`bg-[#00A651] px-4 py-2 rounded-xl flex-row items-center shadow-md active:scale-95`}>
-                      <Ionicons name="document-text" size={16} color="white" />
-                      <Text style={tw`text-white font-bold text-xs ml-1.5`}>Export Excel</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              ) : null
-            }
-          />
-        ) : (
-          <View style={[tw`flex-row items-center justify-between px-5 py-3 mx-5 mt-4 mb-2 rounded-3xl border border-white/60 relative z-20`, { backgroundColor: 'rgba(255,255,255,0.85)', ...glassStyle, shadowColor: '#0055A5', shadowOpacity: 0.15, shadowRadius: 25, shadowOffset: { width: 0, height: 10 } }]}>
-            <View style={tw`flex-row items-center`}>
-              <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.replace(getDashboardRoute())} style={tw`p-2 bg-gray-100 rounded-full mr-4 shadow-sm z-30`}>
-                <Ionicons name="arrow-back" size={24} color="#0055A5" />
-              </TouchableOpacity>
-              <Text style={tw`text-2xl font-black text-gray-800 tracking-tight z-30`}>Lihat Seluruh Laporan</Text>
-            </View>
-          </View>
-        )}
+        {/* STICKY NAVBAR (Floating Modern Style - Sama persis Mobile & Web) */}
+        <WebNavbar
+          user={user}
+          title="Lihat Seluruh Laporan"
+          subtitle="Data Riwayat Handover & Inspeksi"
+          navigation={navigation}
+          showBack={true}
+          onBack={() => navigation.canGoBack() ? navigation.goBack() : navigation.replace(getDashboardRoute())}
+          rightAction={
+            isLargeScreen && user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') ? (
+              <View style={tw`flex-row gap-3`}>
+                <TouchableOpacity onPress={handleExportPdf} style={tw`bg-[#ED1C24] px-4 py-2 rounded-xl flex-row items-center shadow-md active:scale-95`}>
+                  <Ionicons name="document-outline" size={16} color="white" />
+                  <Text style={tw`text-white font-bold text-xs ml-1.5`}>Export PDF</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleExportExcel} style={tw`bg-[#00A651] px-4 py-2 rounded-xl flex-row items-center shadow-md active:scale-95`}>
+                  <Ionicons name="document-text" size={16} color="white" />
+                  <Text style={tw`text-white font-bold text-xs ml-1.5`}>Export Excel</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null
+          }
+        />
 
         <View style={[tw`flex-1 relative`, Platform.OS === 'web' ? { minHeight: 0, overflow: 'hidden' } : {}]}>
           {/* Modern Search & Filter Button with comfortable spacing */}
@@ -696,7 +732,7 @@ export default function HistoryScreen({ route, navigation }) {
                     <Ionicons name="shield-checkmark" size={14} color="#9CA3AF" />  Status
                   </Text>
                   <View style={tw`flex-row flex-wrap mb-5`}>
-                    {['Semua', 'Normal', 'Isu'].map(status => (
+                    {['Semua', 'Normal', 'Isu', 'Selesai'].map(status => (
                       <TouchableOpacity
                         key={status}
                         style={tw`px-4 py-2.5 rounded-full mr-2 mb-2 border ${tempStatus === status ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-transparent border-gray-300'}`}
@@ -706,23 +742,6 @@ export default function HistoryScreen({ route, navigation }) {
                       </TouchableOpacity>
                     ))}
                   </View>
-
-                  {/* Shift Filter */}
-                  <Text style={tw`text-xs font-bold text-gray-500 mb-3 uppercase tracking-wider flex-row items-center`}>
-                    <Ionicons name="time" size={14} color="#9CA3AF" />  Shift
-                  </Text>
-                  <View style={tw`flex-row flex-wrap mb-5`}>
-                    {['Semua', 'Shift 1', 'Shift 2'].map(shift => (
-                      <TouchableOpacity
-                        key={shift}
-                        style={tw`px-4 py-2.5 rounded-full mr-2 mb-2 border ${tempShift === shift ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-transparent border-gray-300'}`}
-                        onPress={() => setTempShift(shift)}
-                      >
-                        <Text style={tw`text-sm font-bold ${tempShift === shift ? 'text-white' : 'text-gray-600'}`}>{shift}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
 
                   {/* Rentang Waktu Cepat (Banking App Style) */}
                   <Text style={tw`text-xs font-bold text-gray-500 mb-3 uppercase tracking-wider flex-row items-center`}>
@@ -772,7 +791,7 @@ export default function HistoryScreen({ route, navigation }) {
                         />
                       ) : (
                         <>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             onPress={() => setShowStartPicker(true)}
                             style={tw`p-3 border border-gray-200 rounded-2xl bg-gray-50 flex-row items-center justify-between`}
                           >
@@ -808,7 +827,7 @@ export default function HistoryScreen({ route, navigation }) {
                         />
                       ) : (
                         <>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             onPress={() => setShowEndPicker(true)}
                             style={tw`p-3 border border-gray-200 rounded-2xl bg-gray-50 flex-row items-center justify-between`}
                           >
@@ -905,7 +924,7 @@ export default function HistoryScreen({ route, navigation }) {
           >
             <View style={tw`flex-1 justify-end sm:justify-center items-center bg-black/50 px-4 sm:px-0 z-50`}>
               <View style={tw`bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl relative overflow-hidden pb-8 sm:pb-6`}>
-                
+
                 {/* Header Modal */}
                 <View style={tw`flex-row justify-between items-center mb-2`}>
                   <View style={tw`flex-row items-center`}>

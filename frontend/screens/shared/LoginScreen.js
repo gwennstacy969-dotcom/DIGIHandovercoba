@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { API_URL } from '../../config';
-import { View, Text, TextInput, TouchableOpacity, Animated, KeyboardAvoidingView, Platform, ScrollView, Image, ImageBackground, Modal, Linking, Dimensions, BackHandler } from 'react-native';
+import { API_URL, loadSavedApiUrl } from '../../config';
+import { View, Text, TextInput, TouchableOpacity, Animated, KeyboardAvoidingView, Platform, ScrollView, Image, ImageBackground, Modal, Linking, Dimensions, BackHandler, ActivityIndicator, Keyboard } from 'react-native';
 import tw from 'twrnc';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,6 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useFocusEffect } from '@react-navigation/native';
+import ForgotPasswordModal from '../../components/ForgotPasswordModal';
 
 const PERTAMINA_BLUE = ['#0055A5', '#003366'];
 const PERTAMINA_RED = ['#ED1C24', '#B30000'];
@@ -23,6 +24,13 @@ export default function LoginScreen({ navigation }) {
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmittingReset, setIsSubmittingReset] = useState(false);
+
+  // Load API URL dari environment saat startup
+  useEffect(() => {
+    loadSavedApiUrl();
+  }, []);
+
+
 
   // Tangani tombol back hardware Android saat di halaman Login agar keluar dari aplikasi (tidak balik ke dashboard)
   useFocusEffect(
@@ -120,7 +128,7 @@ export default function LoginScreen({ navigation }) {
       showNotification('Username Kosong', 'Mohon isi username Anda pada form login sebelum meminta reset password.', 'error');
       return;
     }
-    
+
     setIsSubmittingReset(true);
     setShowForgotPasswordModal(false);
 
@@ -129,9 +137,9 @@ export default function LoginScreen({ navigation }) {
 
     // Kirim API di background
     try {
-      await axios.post(`${API_URL}/api/password-reset/request`, { 
-        email: username, 
-        reason: 'Lupa password dari aplikasi' 
+      await axios.post(`${API_URL}/api/password-reset/request`, {
+        email: username,
+        reason: 'Lupa password dari aplikasi'
       });
     } catch (error) {
       // Jika gagal, timpa notif sukses dengan notif error
@@ -140,6 +148,35 @@ export default function LoginScreen({ navigation }) {
       setIsSubmittingReset(false);
     }
   };
+
+  // Animasi geser layar ke atas saat keyboard terbuka agar form selalu di posisi yang konsisten
+  const keyboardShift = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      // Geser konsisten ke atas agar Lupa Password persis di atas keyboard
+      Animated.timing(keyboardShift, {
+        toValue: Platform.OS === 'ios' ? -100 : -130,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      Animated.timing(keyboardShift, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [keyboardShift]);
 
   return (
     <View style={[tw`flex-1`, Platform.OS === 'web' && { minHeight: '100vh', minWidth: '100vw' }]}>
@@ -178,46 +215,22 @@ export default function LoginScreen({ navigation }) {
         </Modal>
 
         {/* Modal Kustom Lupa Password */}
-        <Modal
-          animationType="fade"
-          transparent={true}
+        <ForgotPasswordModal
           visible={showForgotPasswordModal}
-          onRequestClose={() => setShowForgotPasswordModal(false)}
-        >
-          <View style={tw`flex-1 justify-center items-center bg-black/50 px-4`}>
-            <View style={tw`bg-white w-full max-w-sm rounded-[30px] p-8 items-center shadow-2xl`}>
-              <View style={tw`bg-red-50 p-4 rounded-full mb-4`}>
-                <Ionicons name="help-buoy" size={40} color="#ED1C24" />
-              </View>
-              <Text style={tw`text-2xl font-black text-gray-800 mb-2`}>Lupa Password?</Text>
-              <Text style={tw`text-gray-500 text-center text-base mb-6 leading-relaxed`}>
-                Kirimkan notifikasi ke Admin untuk mereset akun Anda? (Pastikan Anda telah mengisi Username Anda di layar login)
-              </Text>
+          onClose={() => setShowForgotPasswordModal(false)}
+          onSubmit={handleForgotPassword}
+          isSubmitting={isSubmittingReset}
+        />
 
-              <View style={tw`w-full flex-row justify-between`}>
-                <TouchableOpacity
-                  style={tw`flex-1 bg-gray-100 py-4 rounded-2xl mr-2 items-center`}
-                  onPress={() => setShowForgotPasswordModal(false)}
-                >
-                  <Text style={tw`text-gray-600 font-bold`}>Batal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={tw`flex-1 ${isSubmittingReset ? 'bg-gray-300' : 'bg-[#ED1C24]'} py-4 rounded-2xl ml-2 items-center shadow-md`}
-                  onPress={handleForgotPassword}
-                  disabled={isSubmittingReset}
-                >
-                  <Text style={tw`text-white font-bold`}>{isSubmittingReset ? 'Mengirim...' : 'Kirim Notif'}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
 
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={tw`flex-1`}
-        >
-          <ScrollView contentContainerStyle={tw`flex-grow justify-center items-center px-6`} showsVerticalScrollIndicator={false}>
+
+        <Animated.View style={[tw`flex-1`, { transform: [{ translateY: keyboardShift }] }]}>
+          <ScrollView
+            contentContainerStyle={tw`flex-grow justify-center items-center px-6`}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            scrollEnabled={false}
+          >
 
             {/* Header Image Area: Truck behind Mascot */}
             <View style={tw`z-10 mb-0 items-center mt-4 w-80 h-48 justify-end relative`}>
@@ -253,15 +266,12 @@ export default function LoginScreen({ navigation }) {
             {/* Kotak Login Solid Putih Lebih Besar untuk Web */}
             <View style={tw`bg-white w-full max-w-[420px] p-8 rounded-[40px] shadow-2xl mb-10 z-20`}>
 
+              {/* Logo DIGI Handover */}
               <View style={tw`items-center mb-8 mt-2`}>
-                <View style={tw`flex-row items-center justify-center mb-2`}>
-                  {/* 3 Warna Pertamina */}
-                  <View style={tw`w-2 h-8 rounded-full bg-[#ED1C24] mr-2`} />
-                  <View style={tw`w-2 h-8 rounded-full bg-[#2ECC71] mr-2`} />
-                  <View style={tw`w-2 h-8 rounded-full bg-[#0055A5] mr-3`} />
-                  <Text style={tw`text-3xl font-black text-gray-800 tracking-tighter`}>DIGI</Text>
-                  <Text style={tw`text-3xl font-black text-[#0055A5] tracking-tighter`}>Handover</Text>
-                </View>
+                <Image
+                  source={require('../../assets/exact_digihandover_logo.png')}
+                  style={{ width: 250, height: 40, resizeMode: 'contain', marginBottom: 8 }}
+                />
                 <Text style={tw`text-xs font-bold text-gray-400 tracking-widest uppercase`}>PT Pertamina Patra Niaga</Text>
               </View>
 
@@ -343,7 +353,7 @@ export default function LoginScreen({ navigation }) {
 
             </View>
           </ScrollView>
-        </KeyboardAvoidingView>
+        </Animated.View>
       </SafeAreaView>
     </View>
   );

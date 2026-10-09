@@ -56,7 +56,7 @@ import ScannerScreen from './screens/user/ScannerScreen';
 import HandoverFormScreen from './screens/user/HandoverFormScreen';
 import FixVerificationScreen from './screens/user/FixVerificationScreen';
 
-import { API_URL } from './config';
+import { API_URL, loadSavedApiUrl } from './config';
 
 const Stack = createNativeStackNavigator();
 
@@ -82,13 +82,39 @@ export default function App() {
   const [initialRoute, setInitialRoute] = useState(null);
 
   useEffect(() => {
+    // Bypass ngrok browser warning page
+    axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
+
     // Interceptor global untuk membersihkan session jika token expired / unauthorized
     const interceptor = axios.interceptors.response.use(
       (response) => response,
       async (error) => {
+        const originalRequest = error.config;
         const status = error.response?.status;
         const errMessage = error.response?.data?.error || '';
-        if (status === 401 || (status === 403 && (errMessage.includes('Token') || errMessage.includes('kadaluarsa')))) {
+        
+        const isAuthError = status === 401 || (status === 403 && (errMessage.includes('Token') || errMessage.includes('kadaluarsa')));
+
+        if (isAuthError && !originalRequest._retry && originalRequest.url !== `${API_URL}/api/auth/refresh`) {
+          originalRequest._retry = true;
+          try {
+            const refreshToken = await AsyncStorage.getItem('refreshToken');
+            if (refreshToken) {
+              const refreshRes = await axios.post(`${API_URL}/api/auth/refresh`, { refreshToken });
+              if (refreshRes.data?.token) {
+                const newToken = refreshRes.data.token;
+                await AsyncStorage.setItem('token', newToken);
+                axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+                originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+                return axios(originalRequest); // Retry the original request
+              }
+            }
+          } catch (refreshErr) {
+            console.log('Refresh token gagal pada interceptor, session berakhir.');
+          }
+        }
+
+        if (isAuthError) {
           await AsyncStorage.multiRemove(['user', 'token', 'refreshToken']);
           delete axios.defaults.headers.common['Authorization'];
         }
@@ -99,8 +125,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const checkLogin = async () => {
+    const determineRoute = async () => {
       try {
+        await loadSavedApiUrl();
+
+        // Pada Web browser: Tetap pertahankan session jika token masih valid agar tidak logout saat refresh (F5)
         const userStr = await AsyncStorage.getItem('user');
         let token = await AsyncStorage.getItem('token');
         const refreshToken = await AsyncStorage.getItem('refreshToken');
@@ -120,14 +149,12 @@ export default function App() {
               } catch (refreshErr) {
                 console.log('Sesi login telah berakhir, silakan login kembali');
                 await AsyncStorage.multiRemove(['user', 'token', 'refreshToken']);
-                setInitialRoute('Login');
-                return;
+                return 'Login';
               }
             } else {
               console.log('Token telah kadaluarsa, reset session ke Login');
               await AsyncStorage.multiRemove(['user', 'token', 'refreshToken']);
-              setInitialRoute('Login');
-              return;
+              return 'Login';
             }
           }
 
@@ -135,21 +162,31 @@ export default function App() {
           axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
           if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') {
-            setInitialRoute('AdminDashboard');
+            return 'AdminDashboard';
           } else if (user.role === 'PENGAWAS') {
-            setInitialRoute('PengawasDashboard');
+            return 'PengawasDashboard';
           } else {
-            setInitialRoute('UserDashboard');
+            return 'UserDashboard';
           }
         } else {
-          setInitialRoute('Login');
+          return 'Login';
         }
       } catch (error) {
         console.error('Failed to load user from AsyncStorage:', error);
-        setInitialRoute('Login'); // Fallback ke Login jika error
+        return 'Login'; // Fallback ke Login jika error
       }
     };
-    checkLogin();
+
+    const runChecks = async () => {
+      // Tampilkan animasi loading screen sekitar 1 detik (1000ms)
+      const [route] = await Promise.all([
+        determineRoute(),
+        new Promise(resolve => setTimeout(resolve, 1000))
+      ]);
+      setInitialRoute(route);
+    };
+
+    runChecks();
   }, []);
 
   const scaleAnim = React.useRef(new Animated.Value(0.95)).current;
@@ -181,54 +218,53 @@ export default function App() {
     ]).start();
   }, []);
 
-  if (!initialRoute) {
-    return (
-      <SafeAreaProvider>
+  return (
+    <SafeAreaProvider>
+      <StatusBar style="dark" />
+      {!initialRoute ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
           <Animated.View style={{
             opacity: fadeAnim,
             transform: [{ scale: scaleAnim }],
             alignItems: 'center'
           }}>
-            <TextLogo style={{ marginBottom: 20, transform: [{ scale: 1.2 }] }} />
+            <Image
+              source={require('./assets/exact_digihandover_logo.png')}
+              style={{ width: 260, height: 42, resizeMode: 'contain', marginBottom: 28 }}
+            />
             <ActivityIndicator size="large" color="#0055A5" />
           </Animated.View>
         </View>
-      </SafeAreaProvider>
-    );
-  }
-  return (
-    <SafeAreaProvider>
-      <NavigationContainer>
-      <StatusBar style="dark" />
-      <Stack.Navigator
-        initialRouteName={initialRoute}
-        screenOptions={{
-          headerShown: false,
-          animation: Platform.OS === 'web' ? 'none' : 'fade_from_bottom', // Instant on web, smooth transition on mobile
-        }}
-      >
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
-        <Stack.Screen name="PengawasDashboard" component={PengawasDashboardScreen} />
-        <Stack.Screen name="UserDashboard" component={UserDashboardScreen} />
-        <Stack.Screen name="Scanner" component={ScannerScreen} />
-        <Stack.Screen name="HandoverForm" component={HandoverFormScreen} />
-        <Stack.Screen name="FixVerification" component={FixVerificationScreen} />
-        <Stack.Screen name="History" component={HistoryScreen} />
-        <Stack.Screen name="HandoverDetail" component={HandoverDetailScreen} />
-        <Stack.Screen name="VehicleList" component={VehicleListScreen} />
-        <Stack.Screen name="IssueList" component={IssueListScreen} />
-        <Stack.Screen name="IssueDetail" component={IssueDetailScreen} />
-        <Stack.Screen name="MessageCenter" component={MessageCenterScreen} />
-        <Stack.Screen name="ChecklistManager" component={ChecklistManagerScreen} />
-        <Stack.Screen name="WorkerList" component={WorkerListScreen} />
-        <Stack.Screen name="PengawasList" component={PengawasListScreen} />
-        <Stack.Screen name="AdminList" component={AdminListScreen} />
-
-      </Stack.Navigator>
+      ) : (
+        <NavigationContainer>
+          <Stack.Navigator
+            initialRouteName={initialRoute}
+            screenOptions={{
+              headerShown: false,
+              animation: Platform.OS === 'web' ? 'none' : 'fade_from_bottom', // Instant on web, smooth transition on mobile
+            }}
+          >
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+            <Stack.Screen name="PengawasDashboard" component={PengawasDashboardScreen} />
+            <Stack.Screen name="UserDashboard" component={UserDashboardScreen} />
+            <Stack.Screen name="Scanner" component={ScannerScreen} />
+            <Stack.Screen name="HandoverForm" component={HandoverFormScreen} />
+            <Stack.Screen name="FixVerification" component={FixVerificationScreen} />
+            <Stack.Screen name="History" component={HistoryScreen} />
+            <Stack.Screen name="HandoverDetail" component={HandoverDetailScreen} />
+            <Stack.Screen name="VehicleList" component={VehicleListScreen} />
+            <Stack.Screen name="IssueList" component={IssueListScreen} />
+            <Stack.Screen name="IssueDetail" component={IssueDetailScreen} />
+            <Stack.Screen name="MessageCenter" component={MessageCenterScreen} />
+            <Stack.Screen name="ChecklistManager" component={ChecklistManagerScreen} />
+            <Stack.Screen name="WorkerList" component={WorkerListScreen} />
+            <Stack.Screen name="PengawasList" component={PengawasListScreen} />
+            <Stack.Screen name="AdminList" component={AdminListScreen} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      )}
       <Toast config={toastConfig} position="top" topOffset={50} />
-    </NavigationContainer>
     </SafeAreaProvider>
   );
 }

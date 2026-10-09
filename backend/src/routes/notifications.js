@@ -43,6 +43,27 @@ router.get('/', authenticateToken, async (req, res) => {
 router.put('/:id/read', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const notification = await prisma.notification.findUnique({ where: { id } });
+    if (!notification) return res.status(404).json({ error: 'Notifikasi tidak ditemukan' });
+
+    const role = req.user.role;
+    const userId = req.user.id;
+    let targetRoles = [];
+    if (role === 'AMT' || role === 'USER') {
+      targetRoles = ['USER', 'AMT', 'ALL'];
+    } else if (role === 'PENGAWAS') {
+      targetRoles = ['PENGAWAS', 'ALL'];
+    } else {
+      targetRoles = ['ADMIN', 'SUPER_ADMIN', 'ALL'];
+    }
+
+    const isTargetUser = notification.targetUserId === userId;
+    const isTargetRole = !notification.targetUserId && targetRoles.includes(notification.targetRole);
+
+    if (!isTargetUser && !isTargetRole) {
+      return res.status(403).json({ error: 'Tidak ada akses untuk notifikasi ini' });
+    }
+
     const updated = await prisma.notification.update({
       where: { id },
       data: { isRead: true }

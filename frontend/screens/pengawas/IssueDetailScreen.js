@@ -12,10 +12,14 @@ import { API_URL } from '../../config';
 import WebSidebar from '../../components/WebSidebar';
 import WebNavbar from '../../components/WebNavbar';
 
-const getPhotoUrl = (path) => {
-  if (!path) return `${API_URL}/uploads/default.png`;
+const getPhotoUrl = (path, token) => {
+  if (!path) return `${API_URL}/uploads/default.png${token ? '?token=' + token : ''}`;
   const cleanPath = path.replace(/\\/g, '/');
-  return cleanPath.startsWith('http') ? cleanPath : `${API_URL}/${cleanPath.replace(/^\/+/, '')}`;
+  let url = cleanPath.startsWith('http') ? cleanPath : `${API_URL}/${cleanPath.replace(/^\/+/, '')}`;
+  if (token && !url.includes('?token=')) {
+    url += `?token=${token}`;
+  }
+  return url;
 };
 import { useRoleGuard } from '../../hooks/useRoleGuard';
 import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
@@ -41,6 +45,7 @@ export default function IssueDetailScreen({ route, navigation }) {
 
   const [issue, setIssue] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [authToken, setAuthToken] = useState('');
   const [loading, setLoading] = useState(true);
   
   // evaluations: { [itemId]: { approved: true/false, reason: string } }
@@ -65,6 +70,7 @@ export default function IssueDetailScreen({ route, navigation }) {
   useEffect(() => {
     loadUser();
     fetchIssueDetail();
+    AsyncStorage.getItem('token').then(t => setAuthToken(t || ''));
   }, [targetId, targetNopol]);
 
   const loadUser = async () => {
@@ -533,7 +539,7 @@ export default function IssueDetailScreen({ route, navigation }) {
                         style={tw`relative rounded-xl overflow-hidden shadow-sm`}
                       >
                         <Image 
-                          source={{ uri: getPhotoUrl(handoverPhoto.previewUrl || handoverPhoto.url) }}
+                          source={{ uri: getPhotoUrl(handoverPhoto.previewUrl || handoverPhoto.url, authToken) }}
                           style={tw`w-full h-48 rounded-xl bg-gray-100`} 
                           resizeMode="cover"
                         />
@@ -590,7 +596,7 @@ export default function IssueDetailScreen({ route, navigation }) {
                           style={tw`relative rounded-xl overflow-hidden shadow-sm`}
                         >
                           <Image 
-                            source={{ uri: getPhotoUrl(item.repairPhotoUrl) }}
+                            source={{ uri: getPhotoUrl(item.repairPhotoUrl, authToken) }}
                             style={tw`w-full h-48 rounded-xl bg-gray-100`} 
                             resizeMode="cover"
                           />
@@ -773,7 +779,7 @@ export default function IssueDetailScreen({ route, navigation }) {
               <View style={tw`w-full h-full justify-center items-center p-4 pt-24`}>
                 <View style={tw`w-full h-[80%] bg-black/40 rounded-3xl overflow-hidden border border-white/10 relative justify-center items-center`}>
                   <Image
-                    source={{ uri: getPhotoUrl(selectedPreviewPhoto.url) }}
+                    source={{ uri: getPhotoUrl(selectedPreviewPhoto.url, authToken) }}
                     style={[tw`w-full h-full`, { transform: [{ rotate: `${previewRotation}deg` }] }]}
                     resizeMode="contain"
                   />

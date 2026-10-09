@@ -22,8 +22,12 @@ const submitHandoverSchema = Joi.object({
   }),
   type: Joi.string().valid('mulai', 'akhiri').default('mulai'),
   status: Joi.string().valid('Aman', 'Siap Operasi (Normal)', 'Ada Masalah', 'FORCE_RELEASED', 'STARTED', 'FINISHED').allow(null, ''),
-  locationLat: Joi.number().allow(null, ''),
-  locationLng: Joi.number().allow(null, ''),
+  locationLat: Joi.number().required().messages({
+    'any.required': 'Lokasi (Latitude) wajib disertakan'
+  }),
+  locationLng: Joi.number().required().messages({
+    'any.required': 'Lokasi (Longitude) wajib disertakan'
+  }),
   items: Joi.alternatives().try(Joi.string(), Joi.array()).required().messages({
     'any.required': 'Daftar item checklist wajib disertakan'
   }),

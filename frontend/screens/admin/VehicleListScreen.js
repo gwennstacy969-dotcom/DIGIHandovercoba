@@ -15,7 +15,7 @@ import axios from 'axios';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
-const API_BASE = `${API_URL}/api`;
+const API_BASE = { toString: () => `${API_URL}/api` };
 const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
 
 const { Dimensions } = require('react-native');
@@ -52,7 +52,6 @@ export default function VehicleListScreen({ navigation }) {
   const [selectedStatus, setSelectedStatus] = useState('Semua');
   const [tempSelectedStatus, setTempSelectedStatus] = useState('Semua');
   const [selectedMonth, setSelectedMonth] = useState('Semua');
-  const [isFilterVisible, setIsFilterVisible] = useState(false);
   const [user, setUser] = useState(null);
   const [isLogoutVisible, setIsLogoutVisible] = useState(false);
   const handleLogout = () => setIsLogoutVisible(true);
@@ -108,7 +107,6 @@ export default function VehicleListScreen({ navigation }) {
       { isOpen: confirmModalVisible, close: () => setConfirmModalVisible(false) },
       { isOpen: addModalVisible, close: () => setAddModalVisible(false) },
       { isOpen: manageModalVisible, close: () => setManageModalVisible(false) },
-      { isOpen: isFilterVisible, close: () => setIsFilterVisible(false) },
       { isOpen: successModalVisible, close: () => setSuccessModalVisible(false) },
       { isOpen: warningModalVisible, close: () => setWarningModalVisible(false) },
       { isOpen: isLogoutVisible, close: handleCancelLogout },
@@ -188,7 +186,11 @@ export default function VehicleListScreen({ navigation }) {
 
       const cleanPlate = (selectedVehicle.noPolisi || selectedVehicle.barcode).replace(/\s+/g, '');
       const fileUri = FileSystem.documentDirectory + `QR_Handover_${cleanPlate}.png`;
-      const { uri } = await FileSystem.downloadAsync(imageUrl, fileUri);
+      const { uri } = await FileSystem.downloadAsync(imageUrl, fileUri, {
+        headers: {
+          'ngrok-skip-browser-warning': 'true'
+        }
+      });
 
       await Sharing.shareAsync(uri, {
         mimeType: 'image/png',
@@ -473,20 +475,34 @@ export default function VehicleListScreen({ navigation }) {
         />
 
         <View style={[tw`flex-1 relative`, Platform.OS === 'web' ? { minHeight: 0, overflow: 'hidden' } : {}]}>
-          <View style={tw`px-6 pt-2 flex-row items-center justify-between`}>
-            <View style={tw`flex-1 flex-row items-center bg-white rounded-2xl px-4 py-3 shadow-sm border border-gray-100 mr-3`}>
+          <View style={tw`px-6 pt-2`}>
+            <View style={tw`flex-row items-center bg-white rounded-2xl px-4 py-3 shadow-sm border border-gray-100 mb-3`}>
               <Ionicons name="search" size={20} color="#9CA3AF" />
-              <TextInput style={tw`flex-1 ml-3 text-gray-800 font-medium`} placeholder="Cari Plat Nomor atau Merk..." placeholderTextColor="#9CA3AF" value={searchQuery} onChangeText={setSearchQuery} />
+              <TextInput
+                style={tw`flex-1 ml-3 text-gray-800 font-medium`}
+                placeholder="Cari Plat Nomor atau Merk..."
+                placeholderTextColor="#9CA3AF"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery !== '' && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Ionicons name="close-circle" size={20} color="#CBD5E1" />
+                </TouchableOpacity>
+              )}
             </View>
-            <TouchableOpacity
-              style={tw`bg-[#0055A5] p-3 rounded-2xl shadow-md shadow-blue-500/30`}
-              onPress={() => {
-                setTempSelectedStatus(selectedStatus);
-                setIsFilterVisible(true);
-              }}
-            >
-              <Feather name="filter" size={22} color="white" />
-            </TouchableOpacity>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={tw`flex-row`}>
+              <TouchableOpacity onPress={() => setSelectedStatus('Semua')} style={tw`px-4 py-2 rounded-full mr-2 border ${selectedStatus === 'Semua' ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-white border-gray-200'}`}>
+                <Text style={tw`text-xs font-bold ${selectedStatus === 'Semua' ? 'text-white' : 'text-gray-500'}`}>Semua Kendaraan</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setSelectedStatus('Normal')} style={tw`px-4 py-2 rounded-full mr-2 border ${selectedStatus === 'Normal' ? 'bg-[#00A651] border-[#00A651]' : 'bg-white border-gray-200'}`}>
+                <Text style={tw`text-xs font-bold ${selectedStatus === 'Normal' ? 'text-white' : 'text-gray-500'}`}>Normal</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setSelectedStatus('Isu')} style={tw`px-4 py-2 rounded-full mr-4 border ${selectedStatus === 'Isu' ? 'bg-[#ED1C24] border-[#ED1C24]' : 'bg-white border-gray-200'}`}>
+                <Text style={tw`text-xs font-bold ${selectedStatus === 'Isu' ? 'text-white' : 'text-gray-500'}`}>Isu (Perbaikan)</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
 
           <View style={tw`px-6 mt-4 mb-2 flex-row justify-between items-center`}>
@@ -529,43 +545,6 @@ export default function VehicleListScreen({ navigation }) {
       
         </View>
       </SafeAreaView>
-
-      {/* FILTER MODAL */}
-      <Modal visible={isFilterVisible} transparent={true} animationType="fade" onRequestClose={() => setIsFilterVisible(false)}>
-        <View style={tw`flex-1 justify-center items-center bg-black/60 p-4`}>
-          <View style={tw`bg-white rounded-[30px] p-6 shadow-2xl w-full max-w-md`}>
-            <View style={tw`flex-row justify-between items-center mb-6`}>
-              <Text style={tw`text-2xl font-black text-gray-800`}>Filter Kendaraan</Text>
-              <TouchableOpacity onPress={() => setIsFilterVisible(false)} style={tw`p-2 bg-gray-100 rounded-full`}><Ionicons name="close" size={24} color="#6B7280" /></TouchableOpacity>
-            </View>
-            <Text style={tw`text-sm font-bold text-gray-500 mb-3 uppercase tracking-wider`}>Berdasarkan Status Isu</Text>
-            <View style={tw`flex-row flex-wrap mb-6`}>
-              {['Semua', 'Normal', 'Isu'].map(status => (
-                <TouchableOpacity
-                  key={status}
-                  style={tw`px-5 py-2.5 rounded-full mr-3 mb-3 border ${
-                    tempSelectedStatus === status
-                      ? (status === 'Isu' ? 'bg-[#ED1C24] border-[#ED1C24]' : 'bg-[#0055A5] border-[#0055A5]')
-                      : 'bg-transparent border-gray-300'
-                  }`}
-                  onPress={() => setTempSelectedStatus(status)}
-                >
-                  <Text style={tw`text-sm font-bold ${tempSelectedStatus === status ? 'text-white' : 'text-gray-600'}`}>{status}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <TouchableOpacity
-              style={tw`bg-[#0055A5] p-4 rounded-2xl items-center shadow-lg shadow-blue-500/40`}
-              onPress={() => {
-                setSelectedStatus(tempSelectedStatus);
-                setIsFilterVisible(false);
-              }}
-            >
-              <Text style={tw`text-white font-black text-lg tracking-wide`}>TERAPKAN FILTER</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {/* MANAGE VEHICLE MODAL (For ADMIN & PENGAWAS) */}
       {(user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'PENGAWAS') && (
