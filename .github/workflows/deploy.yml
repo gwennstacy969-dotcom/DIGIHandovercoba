@@ -173,13 +173,25 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Prepare Destination Directories & Permissions on VPS
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            sudo mkdir -p /var/www/handover-web /var/www/handover-web/download /var/www/handover-app/deploy
+            sudo chown -R ${{ secrets.VPS_USER }}:${{ secrets.VPS_USER }} /var/www/handover-web /var/www/handover-app
+            sudo chmod -R 775 /var/www/handover-web /var/www/handover-app
+          EOF
+
       - name: Sync Static Web Files to VPS
         run: |
-          rsync -avz --delete ./web-dist/ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/handover-web/
+          rsync -avz --no-owner --no-group --delete ./web-dist/ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/handover-web/
 
       - name: Sync Production Deploy Configs to VPS
         run: |
-          rsync -avz ./deploy/ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/handover-app/deploy/
+          rsync -avz --no-owner --no-group ./deploy/ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/handover-app/deploy/
+
+      - name: Ensure Web File Permissions for Nginx
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "sudo chmod -R 755 /var/www/handover-web"
 
       - name: Execute Docker Compose Rolling Update on VPS
         run: |
