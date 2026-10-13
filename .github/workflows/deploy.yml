@@ -175,9 +175,10 @@ jobs:
       - name: Prepare Destination Directories & Permissions on VPS
         run: |
           ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
-            sudo mkdir -p /var/www/handover-web /var/www/handover-web/download /var/www/handover-app/deploy
+            sudo mkdir -p /var/www/handover-web /var/www/handover-web/download /var/www/handover-app/deploy /var/www/handover-app/backend/uploads /var/www/handover-app/backend/barcodes /var/www/handover-app/backend/logs
             sudo chown -R ${{ secrets.VPS_USER }}:${{ secrets.VPS_USER }} /var/www/handover-web /var/www/handover-app
             sudo chmod -R 775 /var/www/handover-web /var/www/handover-app
+            sudo chmod -R 777 /var/www/handover-app/backend/uploads /var/www/handover-app/backend/barcodes /var/www/handover-app/backend/logs
           EOF
 
       - name: Sync Static Web Files to VPS
@@ -201,27 +202,46 @@ jobs:
 
             cd /var/www/handover-app
 
-            # Ensure production .env exists by copying existing backend/.env if not present
-            if [ ! -f "deploy/docker/.env" ] && [ -f "backend/.env" ]; then
-              echo "Creating deploy/docker/.env from existing backend/.env..."
-              cp backend/.env deploy/docker/.env
+            echo "=== SYNCHRONIZING ENVIRONMENT FILE ==="
+            ENV_SOURCE=""
+            if [ -f "backend/.env" ]; then
+              ENV_SOURCE="backend/.env"
+            elif [ -f "deploy/docker/.env" ]; then
+              ENV_SOURCE="deploy/docker/.env"
+            elif [ -f ".env" ]; then
+              ENV_SOURCE=".env"
+            fi
+
+            if [ -n "$ENV_SOURCE" ]; then
+              echo "Found production .env at $ENV_SOURCE, propagating to root, backend, and deploy/docker..."
+              cp -f "$ENV_SOURCE" .env
+              cp -f "$ENV_SOURCE" backend/.env
+              cp -f "$ENV_SOURCE" deploy/docker/.env
+              chmod 600 .env backend/.env deploy/docker/.env
+            else
+              echo "❌ CRITICAL: No .env found on VPS in backend/, deploy/docker/, or root!"
+              exit 1
             fi
 
             echo "=== AUDIT CURRENT HOST STATE BEFORE CUTOVER ==="
             sudo ss -tulpn | grep 3000 || true
             docker ps -a || true
 
-            # Gracefully stop ANY PM2 service occupying port 3000
+            # Gracefully stop PM2 and release port 3000 completely
+            echo "Stopping PM2 and releasing port 3000..."
             if command -v pm2 >/dev/null 2>&1; then
-              echo "Stopping all PM2 processes..."
-              sudo pm2 stop all || true
+              pm2 stop all 2>/dev/null || true
             fi
+            sudo pm2 stop all 2>/dev/null || true
+            sudo systemctl stop pm2-root 2>/dev/null || true
+            sudo systemctl stop pm2-ubuntu 2>/dev/null || true
+            sudo fuser -k 3000/tcp 2>/dev/null || true
 
             # Force stop and remove ANY old container on port 3000 or named pertamina_handover_backend
             echo "Force stopping previous backend container..."
-            docker stop pertamina_handover_backend || true
-            docker rm -f pertamina_handover_backend || true
-            docker compose -f docker-compose.yml stop backend || true
+            docker stop pertamina_handover_backend 2>/dev/null || true
+            docker rm -f pertamina_handover_backend 2>/dev/null || true
+            docker compose -f docker-compose.yml stop backend 2>/dev/null || true
 
             echo "🚀 [2/5] Pulling latest backend container image from GHCR..."
             docker pull ghcr.io/${{ github.repository }}/backend:latest
@@ -231,29 +251,45 @@ jobs:
             docker run --rm ghcr.io/${{ github.repository }}/backend:latest ls -la /app/node_modules/.prisma/client/
 
             echo "🚀 [3/5] Applying pending Prisma database migrations safely..."
-            docker compose -f deploy/docker/docker-compose.prod.yml run --rm backend npx prisma migrate deploy || true
+            docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml run --rm backend npx prisma migrate deploy || true
 
             echo "🚀 [4/5] Launching fresh backend container..."
-            docker compose -f deploy/docker/docker-compose.prod.yml up -d --force-recreate --no-deps backend
+            docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml up -d --force-recreate --no-deps backend
 
             echo "🚀 [5/5] Performing Health Check & API Verification..."
             HEALTH_SUCCESS=0
-            for i in {1..10}; do
-              if curl -s -f http://127.0.0.1:3000/health > /dev/null; then
+            for i in {1..15}; do
+              STATUS=$(curl -s -o /tmp/health_test.json -w "%{http_code}" http://127.0.0.1:3000/health || echo "000")
+              if [ "$STATUS" = "200" ]; then
                 HEALTH_SUCCESS=1
                 break
               fi
-              echo "Waiting for health check (attempt $i/10)..."
-              sleep 3
+              echo "Waiting for health check (attempt $i/15, status $STATUS)..."
+              sleep 2
             done
 
             if [ $HEALTH_SUCCESS -eq 1 ]; then
-              echo "✅ Deployment successful! Service is healthy at /health"
-              echo "=== Verifying /api/auth/login directly ==="
-              curl -s -X POST http://127.0.0.1:3000/api/auth/login \
-                -H "Content-Type: application/json" \
-                -d '{"username":"yoan","password":"invalid_test_password"}' || true
+              echo "✅ Local port 3000 health check passed (HTTP 200)!"
+              cat /tmp/health_test.json
               echo ""
+
+              echo "=== Verifying /api/auth/login directly on container ==="
+              LOGIN_STATUS=$(curl -s -o /tmp/login_test.json -w "%{http_code}" -X POST http://127.0.0.1:3000/api/auth/login \
+                -H "Content-Type: application/json" \
+                -d '{"username":"yoan","password":"invalid_test_password"}')
+              echo "Login endpoint verification status: $LOGIN_STATUS"
+              cat /tmp/login_test.json
+              echo ""
+
+              echo "=== Verifying Public HTTPS Domain via Nginx ==="
+              PUBLIC_STATUS=$(curl -s -k -o /tmp/public_health.json -w "%{http_code}" https://pertamina-handover.com/health || echo "000")
+              echo "Public HTTPS health status: $PUBLIC_STATUS"
+              if [ "$PUBLIC_STATUS" != "200" ]; then
+                echo "Nginx returned $PUBLIC_STATUS, reloading Nginx service..."
+                sudo nginx -t && sudo systemctl reload nginx
+                sleep 2
+                curl -s -k -i https://pertamina-handover.com/health || true
+              fi
             else
               echo "❌ Health check failed! Showing container logs..."
               docker logs --tail 100 pertamina_handover_backend || true
