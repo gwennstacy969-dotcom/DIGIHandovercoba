@@ -236,9 +236,15 @@ jobs:
 
             if [ $HEALTH_SUCCESS -eq 1 ]; then
               echo "✅ Deployment successful! Service is healthy at /health"
+              if command -v pm2 >/dev/null 2>&1; then
+                sudo pm2 save || true
+              fi
             else
-              echo "❌ Health check failed! Initiating rollback..."
-              docker compose -f deploy/docker/docker-compose.prod.yml rollback backend || true
+              echo "❌ Health check failed! Initiating fallback to PM2..."
+              docker compose -f deploy/docker/docker-compose.prod.yml stop backend || true
+              if command -v pm2 >/dev/null 2>&1; then
+                sudo pm2 start pertamina-backend || true
+              fi
               exit 1
             fi
           EOF
