@@ -213,11 +213,11 @@ jobs:
             fi
 
             if [ -n "$ENV_SOURCE" ]; then
-              echo "Found production .env at $ENV_SOURCE, propagating to root, backend, and deploy/docker..."
-              cp -f "$ENV_SOURCE" .env
-              cp -f "$ENV_SOURCE" backend/.env
-              cp -f "$ENV_SOURCE" deploy/docker/.env
-              chmod 600 .env backend/.env deploy/docker/.env
+              echo "Found production .env at $ENV_SOURCE, propagating across project..."
+              [ "$ENV_SOURCE" != ".env" ] && cp -f "$ENV_SOURCE" .env || true
+              [ "$ENV_SOURCE" != "backend/.env" ] && cp -f "$ENV_SOURCE" backend/.env || true
+              [ "$ENV_SOURCE" != "deploy/docker/.env" ] && cp -f "$ENV_SOURCE" deploy/docker/.env || true
+              chmod 600 .env backend/.env deploy/docker/.env 2>/dev/null || true
             else
               echo "❌ CRITICAL: No .env found on VPS in backend/, deploy/docker/, or root!"
               exit 1
