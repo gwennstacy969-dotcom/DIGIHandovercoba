@@ -1,15 +1,17 @@
 # ==============================================================
 # Production Dockerfile for Pertamina HandoverApp Backend
-# Multi-stage, Alpine-based, non-root secure container
+# Multi-stage, Debian Bookworm Slim, non-root secure container
 # ==============================================================
 
 # Stage 1: Build & Dependencies
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Install build tools for native C++ bindings (sharp, bcrypt) and OpenSSL
-RUN apk add --no-cache python3 make g++ openssl
+# Install build tools for native C++ bindings (bcrypt) and OpenSSL
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 COPY prisma ./prisma/
@@ -23,14 +25,16 @@ COPY . .
 RUN npx prisma generate
 
 # Stage 2: Minimal Production Runner
-FROM node:20-alpine AS runner
+FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Install curl, openssl, libssl3, and libc6-compat for Prisma query engine runtime
-RUN apk add --no-cache curl openssl libssl3 libc6-compat
+# Install curl, openssl, and ca-certificates for Prisma query engine runtime & healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy compiled dependencies and source files from builder
 COPY --from=builder /app/node_modules ./node_modules
