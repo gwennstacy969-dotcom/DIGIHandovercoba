@@ -103,6 +103,7 @@ const pengawasRoutes = require('./src/routes/pengawas');
 const adminRoutes = require('./src/routes/admins');
 const checklistRoutes = require('./src/routes/checklists');
 const issueRoutes = require('./src/routes/issues');
+const amtIssueRoutes = require('./src/routes/amtIssues');
 const notificationRoutes = require('./src/routes/notifications');
 const passwordResetRoutes = require('./src/routes/passwordReset');
 
@@ -116,6 +117,7 @@ app.use('/api/pengawas', pengawasRoutes);
 app.use('/api/admins', adminRoutes);
 app.use('/api/checklists', checklistRoutes);
 app.use('/api/issues', issueRoutes);
+app.use('/api/amt-issues', amtIssueRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 // Global Error Handler Middleware

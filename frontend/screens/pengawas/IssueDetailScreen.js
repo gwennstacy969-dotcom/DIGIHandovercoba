@@ -147,7 +147,8 @@ export default function IssueDetailScreen({ route, navigation }) {
         setIssue(foundIssue);
         // Initialize evaluations for items that are not good
         const initialEvals = {};
-        const brokenItems = (foundIssue.handover?.items || []).filter(i => !i.isGood);
+        const isVehicleItem = (i) => i.category === 'A' || !i.category || i.category !== 'B';
+        const brokenItems = (foundIssue.handover?.items || []).filter(i => !i.isGood && isVehicleItem(i));
         brokenItems.forEach(item => {
           initialEvals[item.id] = { 
             approved: item.isRepaired ? true : null,
@@ -184,7 +185,8 @@ export default function IssueDetailScreen({ route, navigation }) {
 
   const submitEvaluation = async () => {
     if (!issue || !issue.handover?.items) return;
-    const brokenItems = issue.handover.items.filter(i => !i.isGood);
+    const isVehicleItem = (i) => i.category === 'A' || !i.category || i.category !== 'B';
+    const brokenItems = issue.handover.items.filter(i => !i.isGood && isVehicleItem(i));
     const hasUnevaluated = brokenItems.some(i => evaluations[i.id]?.approved === null);
     
     if (hasUnevaluated) {
@@ -351,7 +353,8 @@ export default function IssueDetailScreen({ route, navigation }) {
     );
   }
 
-  const brokenItems = (issue.handover?.items || []).filter(i => !i.isGood);
+  const isVehicleItem = (i) => i.category === 'A' || !i.category || i.category !== 'B';
+  const brokenItems = (issue.handover?.items || []).filter(i => !i.isGood && isVehicleItem(i));
   const canAdminResolve = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'PENGAWAS';
 
   return (

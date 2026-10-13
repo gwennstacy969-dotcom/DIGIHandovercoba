@@ -39,6 +39,7 @@ model Handover {
   items  HandoverItem[]
   photos Photo[]
   issue  Issue?
+  amtIssues AmtIssue[]
   emailNotificationLogs EmailNotificationLog[]
 
   @@index([userId], map: "Handover_userId_fkey")
@@ -52,6 +53,8 @@ model HandoverItem {
   name       String
   isGood     Boolean
   handoverId String
+  severity   String?
+  notes      String?
 
   repairNote     String?
   repairPhotoUrl String?
@@ -77,6 +80,31 @@ model Issue {
   handover Handover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
 
   @@map("issue")
+}
+
+model AmtIssue {
+  id          String    @id @default(cuid())
+  handoverId  String
+  userId      String?
+  amtName     String
+  amtRole     String?   @default("AMT_1")
+  itemName    String
+  category    String    @default("B")
+  status      String    @default("PENDING")
+  notes       String?   @db.Text
+  actionTaken String?   @db.Text
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  handover    Handover  @relation(fields: [handoverId], references: [id], onDelete: Cascade)
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([handoverId])
+  @@index([userId])
+  @@index([status])
+  @@map("amt_issue")
 }
 
 model Photo {
@@ -108,6 +136,7 @@ model User {
   deletedAt    DateTime?
 
   handovers Handover[]
+  amtIssues AmtIssue[]
   notifications Notification[] @relation("UserNotifications")
   passwordResetRequests      PasswordResetRequest[] @relation("UserPasswordResetRequests")
   passwordResetsPerformed    PasswordResetRequest[] @relation("AdminPasswordResetRequests")
@@ -215,3 +244,15 @@ model SystemSetting {
 
   @@map("system_setting")
 }
+
+model LoginAttempt {
+  id                 String   @id @default(cuid())
+  normalizedUsername String   @unique
+  failedAttempts     Int      @default(0)
+  lastAttemptAt      DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([normalizedUsername])
+  @@map("login_attempt")
+}
+

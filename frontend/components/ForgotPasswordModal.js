@@ -8,6 +8,7 @@ export default function ForgotPasswordModal({
   onClose,
   onSubmit,
   isSubmitting,
+  username = '',
 }) {
   return (
     <Modal
@@ -22,24 +23,27 @@ export default function ForgotPasswordModal({
             <Ionicons name="help-buoy" size={40} color="#ED1C24" />
           </View>
           <Text style={tw`text-2xl font-black text-gray-800 mb-2`}>Lupa Password?</Text>
-          <Text style={tw`text-gray-500 text-center text-base mb-6 leading-relaxed`}>
-            Kirimkan notifikasi ke Admin untuk mereset akun Anda? (Pastikan Anda telah mengisi Username Anda di layar login)
+          <Text style={tw`text-gray-500 text-center text-sm md:text-base mb-6 leading-relaxed`}>
+            {username && username.trim()
+              ? `Kirimkan permintaan bantuan reset password untuk akun '${username.trim()}' ke Admin?`
+              : 'Kirimkan notifikasi ke Admin untuk mereset akun Anda? (Pastikan Anda telah mengisi Username Anda di layar login)'}
           </Text>
 
           <View style={tw`w-full flex-row justify-between`}>
             <TouchableOpacity
-              style={tw`flex-1 bg-gray-100 py-4 rounded-2xl mr-2 items-center`}
+              style={tw`flex-1 bg-gray-100 py-3.5 rounded-2xl mr-2 items-center`}
               onPress={onClose}
+              disabled={isSubmitting}
             >
               <Text style={tw`text-gray-600 font-bold`}>Batal</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={tw`flex-1 ${isSubmitting ? 'bg-gray-300' : 'bg-[#ED1C24]'} py-4 rounded-2xl ml-2 items-center shadow-md`}
+              style={tw`flex-1 ${isSubmitting ? 'bg-gray-400' : 'bg-[#ED1C24]'} py-3.5 rounded-2xl ml-2 items-center shadow-md`}
               onPress={onSubmit}
               disabled={isSubmitting}
             >
               <Text style={tw`text-white font-bold`}>
-                {isSubmitting ? 'Mengirim...' : 'Kirim Notif'}
+                {isSubmitting ? 'Mengirim...' : 'Kirim Permintaan'}
               </Text>
             </TouchableOpacity>
           </View>

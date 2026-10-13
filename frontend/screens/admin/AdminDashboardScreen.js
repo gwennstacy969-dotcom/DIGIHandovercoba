@@ -321,7 +321,7 @@ export default function AdminDashboardScreen({ navigation }) {
                 isBad ? tw`bg-red-500` : tw`bg-emerald-500`
               ]}>
                 <Text style={tw`text-[10px] text-white font-extrabold uppercase tracking-widest`}>
-                  {isBad ? 'Kritis' : 'Aman'}
+                  {isBad ? 'Isu' : 'Aman'}
                 </Text>
               </View>
             </View>
@@ -341,7 +341,7 @@ export default function AdminDashboardScreen({ navigation }) {
               tw`text-xs font-black tracking-tight`,
               isBad ? tw`text-red-700` : tw`text-emerald-700`
             ]}>
-              {isBad ? `⚠️ ${issueCount > 0 ? `${issueCount} Kendala Ditemukan` : 'Status Unit Kritis'}` : '✓ Siap Operasi (Normal)'}
+              {isBad ? `⚠️ ${issueCount > 0 ? `${issueCount} Isu Ditemukan` : 'Status Unit Ada Isu'}` : '✓ Siap Operasi (Normal)'}
             </Text>
             <Text style={[
               tw`text-[11px] font-medium mt-0.5`,

@@ -16,7 +16,9 @@ describe('Validation Schemas', () => {
       noPolisi: 'B 1234 CD',
       shift: 'Pagi',
       status: 'Aman',
-      items: '[]'
+      items: '[]',
+      locationLat: -7.5,
+      locationLng: 109.0
     };
     const { error } = submitHandoverSchema.validate(validData);
     expect(error).toBeUndefined();
@@ -28,6 +30,8 @@ describe('Validation Schemas', () => {
       shift: 'Pagi',
       items: '[]',
       status: 'Rusak Berat', // Not in enum
+      locationLat: -7.5,
+      locationLng: 109.0
     };
     const { error } = submitHandoverSchema.validate(invalidData);
     expect(error).toBeDefined();

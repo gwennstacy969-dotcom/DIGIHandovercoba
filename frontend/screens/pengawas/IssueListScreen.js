@@ -24,9 +24,13 @@ export default function IssueListScreen({ navigation }) {
   useRoleGuard(['SUPER_ADMIN', 'ADMIN', 'PENGAWAS', 'AMT']);
   const [issues, setIssues] = useState([]);
   const [filteredIssues, setFilteredIssues] = useState([]);
+  const [amtIssues, setAmtIssues] = useState([]);
+  const [filteredAmtIssues, setFilteredAmtIssues] = useState([]);
+  const [activeCategory, setActiveCategory] = useState('VEHICLE'); // 'VEHICLE' (A) or 'AMT' (B)
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [issueFilter, setIssueFilter] = useState('current');
+  const [issueFilter, setIssueFilter] = useState('current'); // 'current' or 'all' for Vehicle
+  const [amtFilter, setAmtFilter] = useState('OPEN'); // 'OPEN' or 'ALL' for AMT
   const [screenWidth, setScreenWidth] = useState(Dimensions.get('window').width);
 
   useEffect(() => {
@@ -43,6 +47,9 @@ export default function IssueListScreen({ navigation }) {
   // Custom Modals State
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [selectedAmtIssue, setSelectedAmtIssue] = useState(null);
+  const [amtResolveModalVisible, setAmtResolveModalVisible] = useState(false);
+  const [amtActionNote, setAmtActionNote] = useState('');
   const [isResolving, setIsResolving] = useState(false);
   const [user, setUser] = useState(null);
   const [isLogoutVisible, setIsLogoutVisible] = useState(false);
@@ -60,6 +67,7 @@ export default function IssueListScreen({ navigation }) {
       { isOpen: manageModalVisible, close: () => setManageModalVisible(false) },
       { isOpen: confirmModalVisible, close: () => setConfirmModalVisible(false) },
       { isOpen: successModalVisible, close: () => setSuccessModalVisible(false) },
+      { isOpen: amtResolveModalVisible, close: () => setAmtResolveModalVisible(false) },
       { isOpen: isLogoutVisible, close: handleCancelLogout },
     ]
   });
@@ -88,8 +96,12 @@ export default function IssueListScreen({ navigation }) {
   }, []);
 
   useEffect(() => {
-    fetchIssues();
-  }, [issueFilter]);
+    if (activeCategory === 'VEHICLE') {
+      fetchIssues();
+    } else {
+      fetchAmtIssues();
+    }
+  }, [activeCategory, issueFilter, amtFilter]);
 
   // Handle Search Filtering
   useEffect(() => {
@@ -110,6 +122,26 @@ export default function IssueListScreen({ navigation }) {
 
     setFilteredIssues(filtered);
   }, [searchQuery, issues]);
+
+  // Handle Search Filtering for AMT
+  useEffect(() => {
+    if (!amtIssues) return;
+    if (!searchQuery.trim()) {
+      setFilteredAmtIssues(amtIssues);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase();
+    const filtered = amtIssues.filter(item => {
+      const itemMatch = item.itemName && item.itemName.toLowerCase().includes(query);
+      const amtMatch = item.amtName && item.amtName.toLowerCase().includes(query);
+      const nopolMatch = item.handover?.noPolisi && item.handover.noPolisi.toLowerCase().includes(query);
+      const notesMatch = item.notes && item.notes.toLowerCase().includes(query);
+      return itemMatch || amtMatch || nopolMatch || notesMatch;
+    });
+
+    setFilteredAmtIssues(filtered);
+  }, [searchQuery, amtIssues]);
 
   const fetchIssues = async () => {
     setLoading(true);
@@ -132,6 +164,22 @@ export default function IssueListScreen({ navigation }) {
       setIssues(fetchedIssues);
     } catch (error) {
       console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAmtIssues = async () => {
+    setLoading(true);
+    try {
+      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+      const token = await AsyncStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const endpoint = `${API_BASE}/amt-issues?status=${amtFilter === 'OPEN' ? 'OPEN' : 'ALL'}`;
+      const res = await axios.get(endpoint, { headers });
+      setAmtIssues(res.data || []);
+    } catch (error) {
+      console.error('Error fetchAmtIssues:', error);
     } finally {
       setLoading(false);
     }
@@ -233,6 +281,116 @@ export default function IssueListScreen({ navigation }) {
     );
   };
 
+  const executeResolveAmtIssue = async () => {
+    if (!selectedAmtIssue) return;
+    setIsResolving(true);
+    try {
+      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+      const token = await AsyncStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      await axios.put(
+        `${API_BASE}/amt-issues/${selectedAmtIssue.id}/resolve`,
+        { actionTaken: amtActionNote.trim() || 'Perlengkapan telah diverifikasi lengkap oleh pengawas.' },
+        { headers }
+      );
+
+      setAmtResolveModalVisible(false);
+      setSelectedAmtIssue(null);
+      fetchAmtIssues();
+      Toast.show({
+        type: 'success',
+        text1: 'Berhasil',
+        text2: 'Temuan kepatuhan AMT berhasil diselesaikan.'
+      });
+    } catch (error) {
+      console.error(error);
+      Toast.show({
+        type: 'error',
+        text1: 'Gagal',
+        text2: error.response?.data?.error || 'Terjadi kesalahan server saat menyelesaikan temuan AMT.'
+      });
+    } finally {
+      setIsResolving(false);
+    }
+  };
+
+  const renderAmtItem = ({ item }) => {
+    const isResolved = item.status === 'RESOLVED';
+    const canResolve = (user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'PENGAWAS') && !isResolved;
+
+    return (
+      <View
+        style={[
+          tw`bg-white p-5 rounded-2xl mb-4 shadow-sm border ${isResolved ? 'border-blue-200' : 'border-amber-200'}`,
+          isLargeScreen ? { width: 'calc(33.333% - 11px)' } : tw`w-full`
+        ]}
+      >
+        <View style={tw`flex-row justify-between items-start mb-3 gap-2`}>
+          <View style={[tw`flex-row items-center flex-1 mr-2`, { minWidth: 0 }]}>
+            <View style={[tw`w-12 h-12 rounded-full items-center justify-center mr-3 ${isResolved ? 'bg-blue-50' : 'bg-amber-50'}`, { flexShrink: 0 }]}>
+              <Ionicons name={isResolved ? 'shield-checkmark' : 'alert-circle'} size={26} color={isResolved ? '#0055A5' : '#D97706'} />
+            </View>
+            <View style={[tw`flex-1`, { minWidth: 0 }]}>
+              <Text style={tw`text-base font-black text-gray-800 tracking-tight`} numberOfLines={2}>
+                {item.itemName}
+              </Text>
+              <Text style={tw`text-xs font-bold text-gray-500 mt-0.5`} numberOfLines={1}>
+                PJ: {item.amtName || '-'} ({item.amtRole || 'AMT'})
+              </Text>
+            </View>
+          </View>
+          <View style={[tw`px-3 py-1.5 rounded-full ${isResolved ? 'bg-[#0055A5]' : 'bg-amber-500'}`, { flexShrink: 0 }]}>
+            <Text style={tw`text-xs font-bold text-white`}>
+              {isResolved ? 'SELESAI' : 'BELUM SESUAI'}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={tw`text-xs font-medium text-gray-400 mb-2`}>
+          Waktu Temuan: {new Date(item.createdAt).toLocaleString('id-ID')} • Unit: {item.handover?.noPolisi || '-'}
+        </Text>
+
+        <View style={tw`mt-1 ${isResolved ? 'bg-blue-50 border-blue-200' : 'bg-amber-50 border-amber-200'} p-3 rounded-xl border`}>
+          <Text style={tw`${isResolved ? 'text-blue-800' : 'text-amber-800'} font-bold mb-1 text-xs`}>Catatan / Temuan Kepatuhan:</Text>
+          <Text style={tw`${isResolved ? 'text-blue-700' : 'text-amber-700'} text-xs font-medium`}>
+            {item.notes || 'Perlengkapan atau dokumen tidak lengkap / belum sesuai'}
+          </Text>
+        </View>
+
+        {isResolved && (
+          <View style={tw`mt-3 bg-white p-3 rounded-xl border border-gray-100`}>
+            <Text style={tw`text-gray-600 text-xs mb-0.5`}>
+              Diverifikasi oleh: <Text style={tw`font-bold text-gray-800`}>{item.resolvedBy || '-'}</Text>
+            </Text>
+            {item.resolvedAt && (
+              <Text style={tw`text-gray-500 text-[10px]`}>{new Date(item.resolvedAt).toLocaleString('id-ID')}</Text>
+            )}
+            {item.actionTaken && (
+              <Text style={tw`text-emerald-700 text-xs font-medium mt-1`}>
+                Tindakan: {item.actionTaken}
+              </Text>
+            )}
+          </View>
+        )}
+
+        {canResolve && (
+          <TouchableOpacity
+            style={tw`mt-3 bg-[#00A651] p-3 rounded-xl flex-row items-center justify-center shadow-sm`}
+            onPress={() => {
+              setSelectedAmtIssue(item);
+              setAmtActionNote('');
+              setAmtResolveModalVisible(true);
+            }}
+          >
+            <Ionicons name="checkmark-done" size={16} color="white" style={tw`mr-1.5`} />
+            <Text style={tw`text-white font-bold text-xs`}>Tindak Lanjut / Verifikasi Selesai</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
   return (
     <View style={tw`flex-1 bg-[#F4F7FA]`}>
       <Animated.View style={[tw`absolute -top-20 -left-10 w-[35rem] h-[35rem] rounded-full opacity-15`, { transform: [{ translateY: orb1TranslateY }] }]}>
@@ -271,12 +429,40 @@ export default function IssueListScreen({ navigation }) {
 
           {/* SEARCH & FILTER SECTION */}
           <View style={tw`px-4 md:px-6 pt-6 pb-2 z-10`}>
+            {/* Top Category Segment Selector (A vs B) */}
+            <View style={tw`flex-row bg-gray-200/90 p-1 rounded-2xl mb-4 border border-gray-300/50`}>
+              <TouchableOpacity
+                style={[
+                  tw`flex-1 py-2.5 rounded-xl flex-row items-center justify-center`,
+                  activeCategory === 'VEHICLE' ? tw`bg-white shadow-sm` : {}
+                ]}
+                onPress={() => setActiveCategory('VEHICLE')}
+              >
+                <Ionicons name="car-outline" size={17} color={activeCategory === 'VEHICLE' ? '#002060' : '#6B7280'} style={tw`mr-1.5`} />
+                <Text style={[tw`text-xs font-black tracking-wide`, activeCategory === 'VEHICLE' ? tw`text-[#002060]` : tw`text-gray-500`]}>
+                  Isu Kendaraan (A)
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  tw`flex-1 py-2.5 rounded-xl flex-row items-center justify-center`,
+                  activeCategory === 'AMT' ? tw`bg-white shadow-sm` : {}
+                ]}
+                onPress={() => setActiveCategory('AMT')}
+              >
+                <Ionicons name="person-outline" size={17} color={activeCategory === 'AMT' ? '#002060' : '#6B7280'} style={tw`mr-1.5`} />
+                <Text style={[tw`text-xs font-black tracking-wide`, activeCategory === 'AMT' ? tw`text-[#002060]` : tw`text-gray-500`]}>
+                  Kepatuhan AMT (B)
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             {/* Search Bar */}
             <View style={tw`flex-row items-center bg-white border border-gray-200 rounded-2xl px-4 py-3 mb-4 shadow-sm`}>
               <Ionicons name="search-outline" size={20} color="#6B7280" />
               <TextInput
                 style={[tw`flex-1 ml-3 text-sm text-gray-800`, Platform.OS === 'web' ? { outline: 'none' } : {}]}
-                placeholder="Cari No. Polisi atau Nama AMT..."
+                placeholder={activeCategory === 'VEHICLE' ? "Cari No. Polisi atau Nama AMT..." : "Cari Perlengkapan atau Nama Kru AMT..."}
                 placeholderTextColor="#9CA3AF"
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -290,67 +476,112 @@ export default function IssueListScreen({ navigation }) {
 
             {/* Filter Pills */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={tw`flex-row`}>
-              <TouchableOpacity
-                style={tw`px-4 py-2 rounded-full mr-2 border ${issueFilter === 'current' ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-white border-gray-200'}`}
-                onPress={() => setIssueFilter('current')}
-              >
-                <View style={tw`flex-row items-center`}>
-                  <Ionicons name="warning-outline" size={16} color={issueFilter === 'current' ? 'white' : '#6B7280'} style={tw`mr-2`} />
-                  <Text style={tw`text-xs font-bold ${issueFilter === 'current' ? 'text-white' : 'text-gray-500'}`}>
-                    Isu Terkini{issueFilter === 'current' ? `  ${filteredIssues.length}` : ''}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+              {activeCategory === 'VEHICLE' ? (
+                <>
+                  <TouchableOpacity
+                    style={tw`px-4 py-2 rounded-full mr-2 border ${issueFilter === 'current' ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-white border-gray-200'}`}
+                    onPress={() => setIssueFilter('current')}
+                  >
+                    <View style={tw`flex-row items-center`}>
+                      <Ionicons name="warning-outline" size={16} color={issueFilter === 'current' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                      <Text style={tw`text-xs font-bold ${issueFilter === 'current' ? 'text-white' : 'text-gray-500'}`}>
+                        Isu Terkini{issueFilter === 'current' ? `  ${filteredIssues.length}` : ''}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
 
-              <TouchableOpacity
-                style={tw`px-4 py-2 rounded-full mr-4 border ${issueFilter === 'all' ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-white border-gray-200'}`}
-                onPress={() => setIssueFilter('all')}
-              >
-                <View style={tw`flex-row items-center`}>
-                  <Ionicons name="layers-outline" size={16} color={issueFilter === 'all' ? 'white' : '#6B7280'} style={tw`mr-2`} />
-                  <Text style={tw`text-xs font-bold ${issueFilter === 'all' ? 'text-white' : 'text-gray-500'}`}>
-                    Semua Isu{issueFilter === 'all' ? `  ${filteredIssues.length}` : ''}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    style={tw`px-4 py-2 rounded-full mr-4 border ${issueFilter === 'all' ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-white border-gray-200'}`}
+                    onPress={() => setIssueFilter('all')}
+                  >
+                    <View style={tw`flex-row items-center`}>
+                      <Ionicons name="layers-outline" size={16} color={issueFilter === 'all' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                      <Text style={tw`text-xs font-bold ${issueFilter === 'all' ? 'text-white' : 'text-gray-500'}`}>
+                        Semua Isu{issueFilter === 'all' ? `  ${filteredIssues.length}` : ''}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={tw`px-4 py-2 rounded-full mr-2 border ${amtFilter === 'OPEN' ? 'bg-[#D97706] border-[#D97706]' : 'bg-white border-gray-200'}`}
+                    onPress={() => setAmtFilter('OPEN')}
+                  >
+                    <View style={tw`flex-row items-center`}>
+                      <Ionicons name="alert-circle-outline" size={16} color={amtFilter === 'OPEN' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                      <Text style={tw`text-xs font-bold ${amtFilter === 'OPEN' ? 'text-white' : 'text-gray-500'}`}>
+                        Perlu Tindak Lanjut{amtFilter === 'OPEN' ? `  ${filteredAmtIssues.length}` : ''}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={tw`px-4 py-2 rounded-full mr-4 border ${amtFilter === 'ALL' ? 'bg-[#0055A5] border-[#0055A5]' : 'bg-white border-gray-200'}`}
+                    onPress={() => setAmtFilter('ALL')}
+                  >
+                    <View style={tw`flex-row items-center`}>
+                      <Ionicons name="shield-outline" size={16} color={amtFilter === 'ALL' ? 'white' : '#6B7280'} style={tw`mr-2`} />
+                      <Text style={tw`text-xs font-bold ${amtFilter === 'ALL' ? 'text-white' : 'text-gray-500'}`}>
+                        Semua Temuan AMT{amtFilter === 'ALL' ? `  ${filteredAmtIssues.length}` : ''}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </>
+              )}
             </ScrollView>
           </View>
 
           {loading ? (
             <View style={tw`flex-1 justify-center items-center`}>
               <ActivityIndicator size="large" color="#0055A5" />
-              <Text style={tw`mt-2 text-gray-500 font-bold tracking-widest uppercase text-xs`}>Memuat Isu...</Text>
+              <Text style={tw`mt-2 text-gray-500 font-bold tracking-widest uppercase text-xs`}>
+                {activeCategory === 'VEHICLE' ? 'Memuat Isu Kendaraan...' : 'Memuat Temuan Kepatuhan AMT...'}
+              </Text>
             </View>
           ) : (
-            <FlatList key={numCols} numColumns={numCols} columnWrapperStyle={isLargeScreen ? tw`justify-start gap-4` : undefined}
+            <FlatList
+              key={activeCategory + '_' + numCols}
+              numColumns={numCols}
+              columnWrapperStyle={isLargeScreen ? tw`justify-start gap-4` : undefined}
               style={tw`flex-1`}
               contentContainerStyle={tw`px-6 pb-20 w-full max-w-7xl mx-auto pt-2`}
-            data={filteredIssues}
-            keyExtractor={(item) => item.id ? item.id.toString() : (item.issueId || Math.random()).toString()}
-            renderItem={renderItem}
-            initialNumToRender={Platform.OS === 'web' ? 100 : 20}
-            maxToRenderPerBatch={Platform.OS === 'web' ? 50 : 20}
-            windowSize={Platform.OS === 'web' ? 30 : 10}
-            removeClippedSubviews={false}
-            showsVerticalScrollIndicator={true}
-            ListEmptyComponent={
-              <View style={tw`items-center mt-20`}>
-                <Ionicons name={issueFilter === 'current' ? "checkmark-circle-outline" : "file-tray-outline"} size={60} color="#CBD5E1" />
-                <Text style={tw`text-center text-gray-600 font-black mt-4 text-xl`}>
-                  {searchQuery.trim() !== ''
-                    ? "Pencarian Tidak Ditemukan"
-                    : (issueFilter === 'current' ? "Tidak Ada Isu Terkini" : "Belum Ada Riwayat Isu")}
-                </Text>
-                <Text style={tw`text-center text-gray-400 font-medium mt-2 text-sm max-w-[80%]`}>
-                  {searchQuery.trim() !== ''
-                    ? `Tidak ada hasil pencarian untuk "${searchQuery}". Coba kata kunci lain.`
-                    : (issueFilter === 'current'
-                        ? "Semua kendaraan saat ini dalam kondisi terkendali."
-                        : "Belum terdapat riwayat isu pada sistem.")}
-                </Text>
-              </View>
-            }
-          />
+              data={activeCategory === 'VEHICLE' ? filteredIssues : filteredAmtIssues}
+              keyExtractor={(item) => item.id ? item.id.toString() : (item.issueId || Math.random()).toString()}
+              renderItem={activeCategory === 'VEHICLE' ? renderItem : renderAmtItem}
+              initialNumToRender={Platform.OS === 'web' ? 100 : 20}
+              maxToRenderPerBatch={Platform.OS === 'web' ? 50 : 20}
+              windowSize={Platform.OS === 'web' ? 30 : 10}
+              removeClippedSubviews={false}
+              showsVerticalScrollIndicator={true}
+              ListEmptyComponent={
+                <View style={tw`items-center mt-20`}>
+                  <Ionicons
+                    name={activeCategory === 'VEHICLE' ? (issueFilter === 'current' ? "checkmark-circle-outline" : "file-tray-outline") : "shield-checkmark-outline"}
+                    size={60}
+                    color="#CBD5E1"
+                  />
+                  <Text style={tw`text-center text-gray-600 font-black mt-4 text-xl`}>
+                    {searchQuery.trim() !== ''
+                      ? "Pencarian Tidak Ditemukan"
+                      : (activeCategory === 'VEHICLE'
+                          ? (issueFilter === 'current' ? "Tidak Ada Isu Terkini" : "Belum Ada Riwayat Isu")
+                          : (amtFilter === 'OPEN' ? "Tidak Ada Temuan Kepatuhan" : "Belum Ada Riwayat Temuan AMT"))}
+                  </Text>
+                  <Text style={tw`text-center text-gray-400 font-medium mt-2 text-sm max-w-[80%]`}>
+                    {searchQuery.trim() !== ''
+                      ? `Tidak ada hasil pencarian untuk "${searchQuery}". Coba kata kunci lain.`
+                      : (activeCategory === 'VEHICLE'
+                          ? (issueFilter === 'current'
+                              ? "Semua kendaraan saat ini dalam kondisi laik operasi."
+                              : "Belum terdapat riwayat isu kendaraan pada sistem.")
+                          : (amtFilter === 'OPEN'
+                              ? "Perlengkapan dan dokumen personil AMT saat ini terpantau lengkap."
+                              : "Belum terdapat catatan kepatuhan AMT pada sistem."))}
+                  </Text>
+                </View>
+              }
+            />
           )}
 
         </View>
@@ -458,6 +689,62 @@ export default function IssueListScreen({ navigation }) {
             <Text style={tw`text-sm font-medium text-gray-500 text-center z-10`}>
               Isu pada kendaraan {selectedVehicle?.noPolisi} telah diselesaikan.
             </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* AMT RESOLVE MODAL */}
+      <Modal visible={amtResolveModalVisible} transparent={true} animationType="fade" onRequestClose={() => !isResolving && setAmtResolveModalVisible(false)}>
+        <View style={tw`flex-1 justify-center items-center bg-black/60 px-6`}>
+          <View style={tw`bg-white w-full max-w-sm rounded-3xl p-7 items-center shadow-2xl`}>
+            <View style={tw`w-16 h-16 bg-blue-50 rounded-full items-center justify-center mb-4`}>
+              <Ionicons name="shield-checkmark" size={34} color="#0055A5" />
+            </View>
+            <Text style={tw`text-lg font-black text-gray-800 text-center mb-1`}>Verifikasi Temuan AMT</Text>
+            <Text style={tw`text-xs text-gray-500 text-center mb-4 font-medium leading-4`}>
+              Tandai kelengkapan <Text style={tw`font-bold text-gray-800`}>{selectedAmtIssue?.itemName}</Text> untuk kru <Text style={tw`font-bold text-gray-800`}>{selectedAmtIssue?.amtName}</Text> sebagai selesai/lengkap.
+            </Text>
+
+            <View style={tw`w-full mb-5`}>
+              <Text style={tw`text-xs font-bold text-gray-600 mb-1.5`}>Catatan Tindak Lanjut:</Text>
+              <TextInput
+                style={[
+                  tw`bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs text-gray-800`,
+                  Platform.OS === 'web' ? { outline: 'none' } : {}
+                ]}
+                placeholder="Contoh: Telah diperiksa fisik dan dinyatakan lengkap"
+                placeholderTextColor="#9CA3AF"
+                value={amtActionNote}
+                onChangeText={setAmtActionNote}
+                multiline
+                numberOfLines={2}
+              />
+            </View>
+
+            <View style={tw`w-full flex-row justify-between gap-3`}>
+              <TouchableOpacity
+                style={tw`flex-1 py-3.5 rounded-xl items-center bg-gray-100`}
+                onPress={() => setAmtResolveModalVisible(false)}
+                disabled={isResolving}
+              >
+                <Text style={tw`text-gray-600 font-bold text-xs`}>Batal</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={tw`flex-1 py-3.5 rounded-xl items-center bg-[#00A651] flex-row justify-center shadow-md shadow-emerald-500/20`}
+                onPress={executeResolveAmtIssue}
+                disabled={isResolving}
+              >
+                {isResolving ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-done" size={16} color="white" style={tw`mr-1.5`} />
+                    <Text style={tw`text-white font-bold text-xs`}>Konfirmasi Selesai</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

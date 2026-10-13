@@ -169,9 +169,10 @@ export default function ScannerScreen({ route, navigation }) {
       const activeIssue = ongoingIssues.find(issue => issue.handover && issue.handover.noPolisi === vehicleNoPolisi);
       const isUnderRepair = !!activeIssue;
       const isPendingApproval = activeIssue?.status === 'PENDING_APPROVAL';
-      const hasAnyMajorItem = activeIssue?.handover?.items?.some(item => item.name.includes('[MAJOR]'));
-      const hasUnrepairedMajor = activeIssue?.handover?.items?.some(item => item.name.includes('[MAJOR]') && !item.isGood && !item.isRepaired);
-      const hasUnrepairedMinor = activeIssue?.handover?.items?.some(item => !item.name.includes('[MAJOR]') && !item.isGood && !item.isRepaired);
+      const isVehicleItem = (item) => item.category === 'A' || !item.category || item.category !== 'B';
+      const hasAnyMajorItem = activeIssue?.handover?.items?.some(item => isVehicleItem(item) && item.name.includes('[MAJOR]'));
+      const hasUnrepairedMajor = activeIssue?.handover?.items?.some(item => isVehicleItem(item) && item.name.includes('[MAJOR]') && !item.isGood && !item.isRepaired);
+      const hasUnrepairedMinor = activeIssue?.handover?.items?.some(item => isVehicleItem(item) && !item.name.includes('[MAJOR]') && !item.isGood && !item.isRepaired);
 
       // Cek apakah user ini berhak melakukan verifikasi perbaikan (fuzzy match toleran typo/spasi & pengawas/admin)
       const isReporter = String(activeIssue?.handover?.userId) === String(userId);

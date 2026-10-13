@@ -92,8 +92,8 @@ router.get('/scan/:barcode', authenticateToken, async (req, res) => {
         });
 
         if (!subsequentAkhiri) {
-          // Cek kerusakan Major
-          const hasMajorBlock = userLastHandover.items?.some(item => !item.isGood && item.name.includes('[MAJOR]'));
+          // Cek kerusakan Major (Hanya Kategori A)
+          const hasMajorBlock = userLastHandover.items?.some(item => !item.isGood && (item.category === 'A' || !item.category || item.category !== 'B') && ((item.severity && item.severity.toLowerCase() === 'major') || (item.name && item.name.includes('[MAJOR]'))));
           if (!hasMajorBlock) {
             activeUserHandover = userLastHandover;
           }

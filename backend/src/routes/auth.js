@@ -14,37 +14,61 @@ if (!JWT_SECRET || !REFRESH_SECRET) {
   console.error('FATAL: JWT_SECRET or REFRESH_SECRET is missing from environment!');
 }
 
-// C5: Limiter khusus login (Maks 10 percobaan per 15 menit)
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Terlalu banyak percobaan login yang gagal. Silakan coba lagi dalam 15 menit.' }
-});
-
-// 1. Auth Login (A1: Bcrypt only, C7: Token 1 jam)
-router.post('/login', loginLimiter, async (req, res, next) => {
+// 1. Auth Login (Bcrypt verification, server-side attempt tracking, no 15-min lockout)
+router.post('/login', async (req, res, next) => {
   try {
     const { error, value } = loginSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.details[0].message });
     const { username, password } = value;
+    const normalizedUsername = (username || '').trim().toLowerCase();
 
     const user = await prisma.user.findFirst({
       where: {
-        username,
-        deletedAt: null // B7: Jangan izinkan user yang telah di-soft-delete login
+        username: username.trim(),
+        deletedAt: null // Jangan izinkan user yang telah di-soft-delete login
       }
     });
 
-    if (!user) {
-      return res.status(401).json({ error: 'Username atau password salah' });
+    const isCredentialInvalid = !user || !(await bcrypt.compare(password, user.password));
+
+    if (isCredentialInvalid) {
+      // Hitung kegagalan secara andal di server-side untuk username ini
+      let failedAttempts = 1;
+      try {
+        const attempt = await prisma.loginAttempt.upsert({
+          where: { normalizedUsername },
+          update: {
+            failedAttempts: { increment: 1 },
+            lastAttemptAt: new Date()
+          },
+          create: {
+            normalizedUsername,
+            failedAttempts: 1,
+            lastAttemptAt: new Date()
+          }
+        });
+        failedAttempts = attempt.failedAttempts;
+      } catch (attErr) {
+        console.error('Error tracking login attempt:', attErr.message);
+      }
+
+      const showForgotPasswordPrompt = failedAttempts >= 3;
+
+      // Pesan tetap generik tanpa membocorkan eksistensi akun, tapi menyertakan failedAttempts & showForgotPasswordPrompt
+      return res.status(401).json({
+        error: 'Username atau password salah',
+        failedAttempts,
+        showForgotPasswordPrompt
+      });
     }
 
-    // A1: Verifikasi password secara aman via bcrypt tanpa plain-text fallback
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
-      return res.status(401).json({ error: 'Username atau password salah' });
+    // Login Berhasil -> Reset penghitung kegagalan untuk username ini
+    try {
+      await prisma.loginAttempt.deleteMany({
+        where: { normalizedUsername }
+      });
+    } catch (cleanErr) {
+      console.warn('Non-critical: error cleaning login attempts:', cleanErr.message);
     }
 
     const payload = { id: user.id, username: user.username, role: user.role };
@@ -57,33 +81,6 @@ router.post('/login', loginLimiter, async (req, res, next) => {
       where: { id: user.id },
       data: { refreshToken }
     });
-
-    // Reset/selesaikan permohonan lupa password yang masih PENDING karena user berhasil login
-    try {
-      await prisma.passwordResetRequest.updateMany({
-        where: {
-          userId: user.id,
-          status: 'PENDING'
-        },
-        data: {
-          status: 'RESOLVED',
-          adminNotes: 'Otomatis diselesaikan oleh sistem karena user berhasil mengingat password dan login.'
-        }
-      });
-
-      // Tandai notifikasi lupa password terkait sebagai sudah terbaca
-      await prisma.notification.updateMany({
-        where: {
-          type: 'AUTH',
-          title: 'Permintaan Reset Password',
-          message: { contains: `(${user.username})` },
-          isRead: false
-        },
-        data: { isRead: true }
-      });
-    } catch (resetErr) {
-      console.log('Non-critical: error resetting pending password reset on login:', resetErr.message);
-    }
 
     res.json({
       token,

@@ -145,6 +145,10 @@ export default function MessageCenterScreen({ navigation }) {
     if (!item.actionType) return;
 
     switch (item.actionType) {
+      case 'VIEW_AMT_ISSUE':
+        // Arahkan ke daftar temuan kepatuhan AMT
+        navigation.navigate('IssueList');
+        break;
       case 'VIEW_ISSUE':
         // Admin/Pengawas → buka IssueDetail jika ada actionId atau noPolisi, atau IssueList
         if (item.actionId || item.noPolisi) {
@@ -191,6 +195,7 @@ export default function MessageCenterScreen({ navigation }) {
   // === Helper: Teks tombol aksi berdasarkan actionType ===
   const getActionLabel = (actionType) => {
     switch (actionType) {
+      case 'VIEW_AMT_ISSUE': return 'Lihat Temuan AMT';
       case 'VIEW_ISSUE': return 'Lihat Isu Kendaraan';
       case 'VIEW_HANDOVER': return 'Lihat Riwayat';
       case 'SCAN_REPAIR': return 'Scan QR Perbaikan';
@@ -200,6 +205,7 @@ export default function MessageCenterScreen({ navigation }) {
 
   const getActionIcon = (actionType) => {
     switch (actionType) {
+      case 'VIEW_AMT_ISSUE': return 'shield-checkmark';
       case 'VIEW_ISSUE': return 'alert-circle';
       case 'VIEW_HANDOVER': return 'document-text';
       case 'SCAN_REPAIR': return 'qr-code';
@@ -209,6 +215,7 @@ export default function MessageCenterScreen({ navigation }) {
 
   const getActionColor = (actionType) => {
     switch (actionType) {
+      case 'VIEW_AMT_ISSUE': return ['#D97706', '#B45309'];
       case 'VIEW_ISSUE': return ['#ED1C24', '#B91C1C'];
       case 'VIEW_HANDOVER': return ['#0055A5', '#1E3A5F'];
       case 'SCAN_REPAIR': return ['#00A651', '#166534'];

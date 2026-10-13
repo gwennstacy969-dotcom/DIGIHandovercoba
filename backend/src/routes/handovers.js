@@ -7,7 +7,7 @@ const CacheService = require('../utils/CacheService');
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const optimizeImages = require('../middleware/imageOptimizer');
 const { submitHandoverSchema } = require('../validators/schemas');
-const { sendNotification } = require('../services/notificationService');
+const { sendNotification, sendAmtComplianceNotification } = require('../services/notificationService');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -124,18 +124,23 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
       parsedItems = items;
     }
 
-    // Cek jika ada item yang "Tidak Baik / Tidak Ada" (isGood == false)
-    const issueItems = parsedItems.filter(item => !item.isGood);
-    const hasMajorIssue = issueItems.some(item => item.name && item.name.includes('[MAJOR]'));
-    const status = issueItems.length > 0 ? 'Ada Masalah' : 'Siap Operasi (Normal)';
+    // Pisahkan item bermasalah: Kategori A (Kendaraan) vs Kategori B (Perlengkapan / Kepatuhan AMT)
+    const vehicleIssueItems = parsedItems.filter(item => !item.isGood && (item.category === 'A' || !item.category || item.category !== 'B'));
+    const amtIssueItems = parsedItems.filter(item => !item.isGood && item.category === 'B');
 
-    // Filter file foto: pastikan foto 'Kerusakan_' hanya disimpan jika memang ada item terkait yang rusak
+    const hasMajorIssue = vehicleIssueItems.some(item => (item.severity && item.severity.toLowerCase() === 'major') || (item.name && item.name.includes('[MAJOR]')));
+    const hasMinorIssue = vehicleIssueItems.some(item => !((item.severity && item.severity.toLowerCase() === 'major') || (item.name && item.name.includes('[MAJOR]'))));
+    
+    // Status kendaraan handover: HANYA jika ada kerusakan kendaraan Kategori A
+    const status = vehicleIssueItems.length > 0 ? 'Ada Masalah' : 'Siap Operasi (Normal)';
+
+    // Filter file foto: pastikan foto 'Kerusakan_' hanya disimpan jika memang ada item kendaraan terkait yang rusak
     const validFiles = (req.files || []).filter(file => {
       if (file.originalname) {
         let decodedName = file.originalname;
         try { decodedName = decodeURIComponent(file.originalname); } catch (e) { }
         if (decodedName.startsWith('Kerusakan_')) {
-          if (issueItems.length === 0) {
+          if (vehicleIssueItems.length === 0) {
             try {
               if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
               if (file.thumbnailUrl && fs.existsSync(file.thumbnailUrl)) fs.unlinkSync(file.thumbnailUrl);
@@ -145,7 +150,7 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
           }
 
           const rawPhotoItemName = decodedName.replace('Kerusakan_', '').split('.')[0].replace(/[^a-zA-Z0-9 ]/g, "").toLowerCase().trim();
-          const isItemDamaged = issueItems.some(it => {
+          const isItemDamaged = vehicleIssueItems.some(it => {
             const cleanItemName = (it.name || '').replace(/[^a-zA-Z0-9 ]/g, "").toLowerCase().trim();
             return cleanItemName.includes(rawPhotoItemName) || rawPhotoItemName.includes(cleanItemName);
           });
@@ -198,79 +203,117 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
       }
     }
 
-    // Simpan ke DB
     const handoverNo = await generateHandoverNo();
-    const handover = await prisma.handover.create({
-      data: {
-        id: handoverNo,
-        handoverNo,
-        userId,
-        noPolisi,
-        shift,
-        type: type || 'mulai',
-        status,
-        amt1: amt1 || null,
-        amt2: amt2 || null,
-        notes: req.body.notes || null,
-        locationLat: locationLat ? parseFloat(locationLat) : null,
-        locationLng: locationLng ? parseFloat(locationLng) : null,
-        items: {
-          create: parsedItems.map(item => ({
-            category: item.category || 'A',
-            name: item.name,
-            isGood: Boolean(item.isGood)
-          }))
-        },
-        photos: {
-          create: validFiles.map(file => {
-            let photoType = 'TERLAMPIR';
-            if (file.originalname) {
-              let decodedOrig = file.originalname;
-              try { decodedOrig = decodeURIComponent(file.originalname); } catch (e) { }
-              const nameWithoutExt = decodedOrig.split('.')[0];
-              if (nameWithoutExt.startsWith('photo_')) {
-                photoType = nameWithoutExt.replace('photo_', '');
-              } else if (nameWithoutExt.startsWith('Kerusakan_')) {
-                photoType = nameWithoutExt.replace('Kerusakan_', 'Kerusakan: ');
-              } else {
-                photoType = nameWithoutExt;
+
+    // Jalankan seluruh penyimpanan dalam database transaction untuk integritas penuh
+    const handover = await prisma.$transaction(async (tx) => {
+      // 1. Simpan Handover & Items & Photos
+      const createdHandover = await tx.handover.create({
+        data: {
+          id: handoverNo,
+          handoverNo,
+          userId,
+          noPolisi,
+          shift,
+          type: type || 'mulai',
+          status,
+          amt1: amt1 || null,
+          amt2: amt2 || null,
+          notes: req.body.notes || null,
+          locationLat: locationLat ? parseFloat(locationLat) : null,
+          locationLng: locationLng ? parseFloat(locationLng) : null,
+          items: {
+            create: parsedItems.map(item => ({
+              category: item.category || 'A',
+              name: item.name,
+              isGood: Boolean(item.isGood),
+              severity: item.category === 'B' ? null : (item.severity || (item.name.includes('[MAJOR]') ? 'Major' : (item.name.includes('[MINOR]') ? 'Minor' : null))),
+              notes: item.catatan || item.notes || null
+            }))
+          },
+          photos: {
+            create: validFiles.map(file => {
+              let photoType = 'TERLAMPIR';
+              if (file.originalname) {
+                let decodedOrig = file.originalname;
+                try { decodedOrig = decodeURIComponent(file.originalname); } catch (e) { }
+                const nameWithoutExt = decodedOrig.split('.')[0];
+                if (nameWithoutExt.startsWith('photo_')) {
+                  photoType = nameWithoutExt.replace('photo_', '');
+                } else if (nameWithoutExt.startsWith('Kerusakan_')) {
+                  photoType = nameWithoutExt.replace('Kerusakan_', 'Kerusakan: ');
+                } else {
+                  photoType = nameWithoutExt;
+                }
               }
-            }
-            return {
-              type: photoType,
-              url: (file.path || '').replace(/\\/g, '/'),
-              thumbnailUrl: file.thumbnailUrl ? file.thumbnailUrl.replace(/\\/g, '/') : null,
-              previewUrl: file.previewUrl ? file.previewUrl.replace(/\\/g, '/') : null,
-              originalSize: file.originalSize || 0
-            };
-          })
+              return {
+                type: photoType,
+                url: (file.path || '').replace(/\\/g, '/'),
+                thumbnailUrl: file.thumbnailUrl ? file.thumbnailUrl.replace(/\\/g, '/') : null,
+                previewUrl: file.previewUrl ? file.previewUrl.replace(/\\/g, '/') : null,
+                originalSize: file.originalSize || 0
+              };
+            })
+          },
+          // HANYA buat record Issue jika ada kerusakan kendaraan Kategori A
+          issue: vehicleIssueItems.length > 0 ? {
+            create: { status: 'ONGOING' }
+          } : undefined
         },
-        issue: status === 'Ada Masalah' ? {
-          create: { status: 'ONGOING' }
-        } : undefined
+        include: {
+          items: true,
+          photos: true,
+          issue: true
+        }
+      });
+
+      // 2. Simpan Temuan Kepatuhan AMT (Kategori B) secara terpisah
+      if (amtIssueItems.length > 0) {
+        for (const amtItem of amtIssueItems) {
+          const cleanItemName = amtItem.name.replace(/\[MAJOR\]|\[MINOR\]/g, '').trim();
+          await tx.amtIssue.create({
+            data: {
+              handoverId: createdHandover.id,
+              userId: userId,
+              amtName: amt1 || existingUser.name,
+              amtRole: 'AMT_1',
+              itemName: cleanItemName,
+              category: 'B',
+              status: 'PENDING',
+              notes: amtItem.catatan || amtItem.notes || null
+            }
+          });
+        }
       }
+
+      // 3. Update Status Kendaraan (HANYA dipengaruhi oleh kondisi Kategori A)
+      if (hasMajorIssue) {
+        await tx.vehicle.update({
+          where: { noPolisi },
+          data: { status: 'Maintenance' }
+        });
+      } else if (type === 'mulai') {
+        await tx.vehicle.update({
+          where: { noPolisi },
+          data: { status: 'Active' }
+        });
+      } else if (type === 'akhiri') {
+        await tx.vehicle.update({
+          where: { noPolisi },
+          data: { status: 'READY_TO_START' }
+        });
+      }
+
+      return createdHandover;
     });
 
-    // Jika ada masalah, kirim notifikasi & push notif
-    if (issueItems.length > 0) {
-      await sendNotification(handover.id, noPolisi, issueItems, hasMajorIssue, 'NEW_ISSUE');
+    // Kirim notifikasi secara asinkron setelah transaksi database berhasil
+    if (vehicleIssueItems.length > 0) {
+      await sendNotification(handover.id, noPolisi, vehicleIssueItems, hasMajorIssue, 'NEW_ISSUE');
     }
 
-    if (hasMajorIssue) {
-      await prisma.vehicle.update({
-        where: { noPolisi },
-        data: { status: 'Maintenance' }
-      });
-    } else if (type === 'mulai') {
-      await prisma.vehicle.update({
-        where: { noPolisi },
-        data: { status: 'Active' }
-      });
-    } else if (type === 'akhiri') {
-      await prisma.vehicle.update({
-        where: { noPolisi },
-        data: { status: 'READY_TO_START' }
-      });
+    if (amtIssueItems.length > 0) {
+      await sendAmtComplianceNotification(handover.id, noPolisi, amtIssueItems, existingUser, amt1 || existingUser.name);
     }
 
     // Invalidate semua cache handovers

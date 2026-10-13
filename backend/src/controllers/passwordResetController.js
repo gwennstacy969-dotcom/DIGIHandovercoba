@@ -2,23 +2,39 @@ const bcrypt = require('bcrypt');
 const { sendPasswordResetNotification, sendPasswordResetCompletedEmail } = require('../services/emailService');
 const prisma = require('../config/prisma');
 
+const checkEmailConfigured = () => {
+  return Boolean(
+    process.env.EMAIL_USER && 
+    process.env.EMAIL_USER !== 'your_email@gmail.com' && 
+    process.env.EMAIL_PASSWORD && 
+    process.env.EMAIL_PASSWORD !== 'your_app_password'
+  );
+};
+
 // 1. User submit forgot password request
 exports.submitPasswordResetRequest = async (req, res) => {
   try {
-    const { email, reason } = req.body;
+    const rawIdentifier = (req.body.username || req.body.email || '').trim();
+    const reason = (req.body.reason || 'Lupa password dari aplikasi').trim();
     
-    // Validate email exists (we'll assume email is username here if no email field exists)
+    if (!rawIdentifier) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Username wajib diisi.' 
+      });
+    }
+
     const user = await prisma.user.findFirst({
       where: {
-        username: email, // assuming username acts as email based on our schema
-        // status: "ACTIVE" // we don't have a status field in our Prisma User model currently
+        username: rawIdentifier,
+        deletedAt: null
       }
     });
     
     if (!user) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Email/Username tidak terdaftar' 
+        message: 'Username tidak terdaftar dalam sistem.' 
       });
     }
     
@@ -31,24 +47,20 @@ exports.submitPasswordResetRequest = async (req, res) => {
     });
     
     if (existingRequest) {
-      const isUserLoggedInAfterRequest = user.updatedAt && new Date(user.updatedAt) > new Date(existingRequest.createdAt);
       const isExpired = Date.now() - new Date(existingRequest.createdAt).getTime() > 24 * 60 * 60 * 1000;
 
-      if (isUserLoggedInAfterRequest || isExpired) {
-        // Otomatis selesaikan request lama karena user pernah login atau request sudah kedaluwarsa
+      if (isExpired) {
         await prisma.passwordResetRequest.update({
           where: { id: existingRequest.id },
           data: {
-            status: isUserLoggedInAfterRequest ? 'RESOLVED' : 'EXPIRED',
-            adminNotes: isUserLoggedInAfterRequest
-              ? 'Otomatis diselesaikan karena user telah berhasil login setelah permohonan dibuat.'
-              : 'Otomatis kedaluwarsa setelah lebih dari 24 jam.'
+            status: 'EXPIRED',
+            adminNotes: 'Otomatis kedaluwarsa setelah lebih dari 24 jam.'
           }
         });
       } else {
         return res.status(400).json({
           success: false,
-          message: 'Anda sudah memiliki permintaan reset yang sedang diproses oleh Admin.'
+          message: 'Permintaan reset password untuk akun ini sudah ada dan sedang diproses oleh Admin.'
         });
       }
     }
@@ -57,52 +69,60 @@ exports.submitPasswordResetRequest = async (req, res) => {
     const result = await prisma.passwordResetRequest.create({
       data: {
         userId: user.id,
-        email: email,
-        reason: reason || null,
+        email: user.username,
+        reason: reason,
         status: 'PENDING'
       }
     });
     
-    // Create In-App Notification ONCE (which will appear in Admin's notification center)
+    // Create In-App Notification for Admin
     await prisma.notification.create({
       data: {
         title: 'Permintaan Reset Password',
-        message: `User ${user.name} (${user.username}) meminta reset password. Alasan: ${reason || 'Tidak ada'}`,
+        message: `User ${user.name} (${user.username}) meminta bantuan reset password. Alasan: ${reason}`,
         type: 'AUTH',
-        targetRole: 'ADMIN'
+        targetRole: 'ADMIN',
+        actionType: 'VIEW_PASSWORD_RESET',
+        actionId: result.id
       }
     });
 
-    // Send email notification to admins
-    const admins = await prisma.user.findMany({
-      where: {
-        role: {
-          in: ['ADMIN', 'SUPER_ADMIN']
+    // Send email notification to admins asynchronously if service is actively configured
+    if (checkEmailConfigured() && process.env.NODE_ENV !== 'test') {
+      (async () => {
+        try {
+          const admins = await prisma.user.findMany({
+            where: {
+              role: { in: ['ADMIN', 'SUPER_ADMIN'] },
+              deletedAt: null
+            }
+          });
+          
+          for (const admin of admins) {
+            await sendPasswordResetNotification(
+              admin.username,
+              user,
+              reason,
+              result.id
+            );
+          }
+        } catch (emailErr) {
+          console.warn('Gagal mengirim email reset password (non-fatal):', emailErr.message);
         }
-      }
-    });
-    
-    for (const admin of admins) {
-      // 1. Send Email Notification
-      await sendPasswordResetNotification(
-        admin.username, // assuming username acts as email
-        user,
-        reason,
-        result.id
-      );
+      })();
     }
     
     return res.status(200).json({
       success: true,
-      message: 'Permintaan reset password telah dikirim ke admin',
+      message: 'Permintaan reset password telah berhasil dikirim ke Admin.',
       requestId: result.id
     });
     
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error submitting password reset request:', error);
     res.status(500).json({
       success: false,
-      message: 'Terjadi kesalahan'
+      message: 'Terjadi kesalahan pada server saat memproses permintaan reset password.'
     });
   }
 };
@@ -195,13 +215,28 @@ exports.verifyAndResetPassword = async (req, res) => {
         where: { id: request.userId }
       });
       
-      // Send email to user
-      await sendPasswordResetCompletedEmail(
-        user.username, // using username as email
-        user.name,
-        tempPassword
-      );
+      // Send email to user if actively configured
+      if (checkEmailConfigured() && process.env.NODE_ENV !== 'test') {
+        sendPasswordResetCompletedEmail(
+          user.username,
+          user.name,
+          tempPassword
+        ).catch(err => console.warn('Failed to send reset email (non-fatal):', err.message));
+      }
       
+      // Mark related Admin in-app notification as read
+      try {
+        await prisma.notification.updateMany({
+          where: {
+            actionType: 'VIEW_PASSWORD_RESET',
+            actionId: requestId
+          },
+          data: { isRead: true }
+        });
+      } catch (notifErr) {
+        console.warn('Non-critical: error marking notification as read:', notifErr.message);
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Password berhasil direset',
@@ -219,9 +254,24 @@ exports.verifyAndResetPassword = async (req, res) => {
         where: { id: requestId },
         data: {
           status: 'REJECTED',
-          adminNotes: notes
+          adminNotes: notes,
+          resetByAdminId: adminId,
+          resetAt: new Date()
         }
       });
+
+      // Mark related Admin in-app notification as read
+      try {
+        await prisma.notification.updateMany({
+          where: {
+            actionType: 'VIEW_PASSWORD_RESET',
+            actionId: requestId
+          },
+          data: { isRead: true }
+        });
+      } catch (notifErr) {
+        console.warn('Non-critical: error marking notification as read:', notifErr.message);
+      }
       
       return res.status(200).json({
         success: true,

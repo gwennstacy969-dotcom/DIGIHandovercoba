@@ -18,7 +18,9 @@ describe('Logic Audit Fixes Verification', () => {
         shift: '1',
         type: 'mulai',
         status: 'Siap Operasi (Normal)',
-        items: []
+        items: [],
+        locationLat: -7.5,
+        locationLng: 109.0
       });
       expect(valid.error).toBeUndefined();
 
@@ -27,7 +29,9 @@ describe('Logic Audit Fixes Verification', () => {
         shift: '1',
         type: 'mulai',
         status: 'StatusNgawur',
-        items: []
+        items: [],
+        locationLat: -7.5,
+        locationLng: 109.0
       });
       expect(invalid.error).toBeDefined();
     });

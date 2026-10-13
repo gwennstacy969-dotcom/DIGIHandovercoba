@@ -314,8 +314,10 @@ const exportExcel = async (req, res) => {
     const allChecklistItemsData = [];
     let totalHandover = handovers.length;
     let kendaraanAdaTemuan = 0;
+    let amtAdaTemuan = 0;
     let temuanMajor = 0;
     let temuanMinor = 0;
+    let temuanAmt = 0;
     let followUpOpen = 0;
     let followUpClosed = 0;
 
@@ -327,30 +329,40 @@ const exportExcel = async (req, res) => {
         ? `Fuel Terminal Maos (${h.locationLat.toFixed(5)}, ${h.locationLng.toFixed(5)})`
         : 'Fuel Terminal Maos';
 
-      const badItems = h.items ? h.items.filter(i => !i.isGood) : [];
-      const hasIssue = badItems.length > 0;
-      if (hasIssue) kendaraanAdaTemuan++;
+      const vehicleBadItems = (h.items || []).filter(i => !i.isGood && (i.category === 'A' || !i.category || i.category !== 'B'));
+      const amtBadItems = (h.items || []).filter(i => !i.isGood && i.category === 'B');
+      const hasVehicleIssue = vehicleBadItems.length > 0;
+      const hasAmtIssue = amtBadItems.length > 0;
+      const hasIssue = hasVehicleIssue || hasAmtIssue;
 
-      const statusKondisi = hasIssue ? 'Ada Temuan' : 'Normal';
-      const komponenArr = badItems.map(i => i.name.replace(/\[MAJOR\]|\[MINOR\]/g, '').trim());
+      if (hasVehicleIssue) kendaraanAdaTemuan++;
+      if (hasAmtIssue) amtAdaTemuan++;
+
+      const statusKondisi = hasVehicleIssue ? 'Ada Temuan Kendaraan' : (hasAmtIssue ? 'Isu Perlengkapan AMT' : 'Normal');
+      const allBadItems = (h.items || []).filter(i => !i.isGood);
+      const komponenArr = allBadItems.map(i => i.name.replace(/\[MAJOR\]|\[MINOR\]/g, '').trim());
       const komponenStr = komponenArr.length > 0 ? komponenArr.join(', ') : '-';
 
       let kategoriStr = '-';
       let majorCount = 0;
       let minorCount = 0;
-      badItems.forEach(i => {
-        if (i.name.includes('[MAJOR]')) {
+      vehicleBadItems.forEach(i => {
+        if (i.name.includes('[MAJOR]') || i.severity === 'Major') {
           majorCount++;
           temuanMajor++;
-        } else if (i.name.includes('[MINOR]')) {
+        } else {
           minorCount++;
           temuanMinor++;
         }
+      });
+      amtBadItems.forEach(() => {
+        temuanAmt++;
       });
 
       if (majorCount > 0 && minorCount > 0) kategoriStr = 'Major & Minor';
       else if (majorCount > 0) kategoriStr = 'Major';
       else if (minorCount > 0) kategoriStr = 'Minor';
+      else if (hasAmtIssue) kategoriStr = 'Kepatuhan AMT';
 
       const amt1 = h.amt1?.trim() || '';
       const amt2 = h.amt2?.trim() || '';
@@ -375,10 +387,11 @@ const exportExcel = async (req, res) => {
         statusFollowUp = 'Normal';
       }
 
-      // Kumpulkan item temuan untuk Sheet 2
+      // Kumpulkan item temuan untuk Sheet 2 (Pisahkan Isu Kendaraan vs Isu Perlengkapan AMT)
       if (hasIssue) {
-        badItems.forEach(item => {
-          const isMajor = item.name.includes('[MAJOR]');
+        allBadItems.forEach(item => {
+          const isCategoryB = item.category === 'B';
+          const isMajor = !isCategoryB && (item.name.includes('[MAJOR]') || item.severity === 'Major');
           const itemName = item.name.replace(/\[MAJOR\]|\[MINOR\]/g, '').trim();
           detailTemuanData.push({
             handoverId: getHandoverCode(h, handoverNoMap, hIdx + 1),
@@ -389,13 +402,13 @@ const exportExcel = async (req, res) => {
             jabatan: h.user ? (h.user.jabatan || '-') : '-',
             shift: shiftStr,
             komponen: itemName,
-            kategori: isMajor ? 'Major' : 'Minor',
-            detail: item.description || `Catatan kondisi ${itemName.toLowerCase()}`,
+            kategori: isCategoryB ? 'Kepatuhan AMT' : (isMajor ? 'Major' : 'Minor'),
+            detail: item.description || (isCategoryB ? `Perlengkapan kerja AMT belum lengkap: ${itemName}` : `Catatan kondisi ${itemName.toLowerCase()}`),
             repairNote: item.repairNote || '-',
-            isRepaired: item.isRepaired ? 'Sudah Diperbaiki' : 'Belum Diperbaiki',
+            isRepaired: item.isRepaired ? 'Sudah Diperbaiki' : (isCategoryB ? 'Kepatuhan Pribadi' : 'Belum Diperbaiki'),
             tindakan: item.isRepaired
               ? 'Selesai Diperbaiki'
-              : (h.issue && h.issue.status === 'RESOLVED' ? 'Telah diperbaiki' : 'Dilaporkan ke supervisor'),
+              : (isCategoryB ? 'Kru wajib melengkapi perlengkapan' : (h.issue && h.issue.status === 'RESOLVED' ? 'Telah diperbaiki' : 'Dilaporkan ke supervisor')),
             status: (h.issue && h.issue.status === 'RESOLVED') || item.isRepaired ? 'Closed' : 'Open',
             diverifikasiOleh: diverifikasiOleh,
             waktuVerifikasi: waktuVerifikasi
@@ -453,7 +466,7 @@ const exportExcel = async (req, res) => {
         notes: unifiedNotes,
         komponen: komponenStr,
         kategori: kategoriStr,
-        detailKerusakan: badItems.map(i => i.description || '-').join(', ') || '-',
+        detailKerusakan: allBadItems.map(i => i.description || '-').join(', ') || '-',
         statusFollowUp: statusFollowUp,
         diverifikasiOleh: diverifikasiOleh,
         waktuVerifikasi: waktuVerifikasi
@@ -665,12 +678,13 @@ const exportExcel = async (req, res) => {
 
     const summaryRows = [
       { label: 'Total Handover Diperiksa', value: totalHandover, unit: 'Unit', note: 'Total proses serah terima tercatat pada sistem' },
-      { label: 'Kendaraan Kondisi Normal', value: totalHandover - kendaraanAdaTemuan, unit: 'Unit', note: 'Kendaraan siap operasi tanpa catatan isu' },
-      { label: 'Kendaraan Ada Temuan', value: kendaraanAdaTemuan, unit: 'Unit', note: 'Kendaraan dengan catatan temuan kendala checklist' },
-      { label: 'Temuan Kategori Major', value: temuanMajor, unit: 'Temuan', note: 'Perlu penanganan kritis / perbaikan segera' },
-      { label: 'Temuan Kategori Minor', value: temuanMinor, unit: 'Temuan', note: 'Temuan ringan yang masih dapat ditindaklanjuti' },
-      { label: 'Status Follow Up Open', value: followUpOpen, unit: 'Isu', note: 'Temuan belum diselesaikan / diverifikasi' },
-      { label: 'Status Follow Up Closed', value: followUpClosed, unit: 'Isu', note: 'Temuan telah diperbaiki & diverifikasi' },
+      { label: 'Kendaraan Kondisi Normal', value: totalHandover - kendaraanAdaTemuan, unit: 'Unit', note: 'Kendaraan siap operasi tanpa catatan isu kendaraan' },
+      { label: 'Kendaraan Ada Temuan (Kategori A)', value: kendaraanAdaTemuan, unit: 'Unit', note: 'Kendaraan dengan catatan temuan kendala checklist Kategori A' },
+      { label: 'Temuan Kerusakan Kendaraan Major', value: temuanMajor, unit: 'Temuan', note: 'Perlu penanganan isu / perbaikan bengkel segera' },
+      { label: 'Temuan Kerusakan Kendaraan Minor', value: temuanMinor, unit: 'Temuan', note: 'Temuan ringan yang masih dapat ditindaklanjuti' },
+      { label: 'Temuan Kepatuhan AMT (Kategori B)', value: temuanAmt, unit: 'Temuan', note: 'Catatan kepatuhan / kelengkapan personal AMT' },
+      { label: 'Status Follow Up Kendaraan Open', value: followUpOpen, unit: 'Isu', note: 'Isu kendaraan belum diselesaikan / diverifikasi' },
+      { label: 'Status Follow Up Kendaraan Closed', value: followUpClosed, unit: 'Isu', note: 'Isu kendaraan telah diperbaiki & diverifikasi' },
       { label: 'Waktu Cetak Dokumen', value: formatDate(new Date()), unit: 'WIB', note: 'Waktu berkas diekspor dari sistem' },
       { label: 'Petugas Pengekspor', value: req.user ? req.user.name : '-', unit: 'Akun', note: `Role: ${req.user ? req.user.role : '-'}` }
     ];
@@ -824,7 +838,8 @@ const exportPdf = async (req, res) => {
       include: {
         user: { select: { id: true, name: true, jabatan: true, role: true } },
         items: true,
-        issue: true
+        issue: true,
+        amtIssues: true
       }
     });
 
@@ -885,23 +900,33 @@ const exportPdf = async (req, res) => {
 
     // Calculate stats
     let totalHandover = handovers.length;
-    let adaTemuan = 0;
+    let kendaraanAdaTemuan = 0;
     let temuanMajor = 0;
+    let temuanMinor = 0;
+    let temuanAmt = 0;
     let followUpOpen = 0;
     let followUpClosed = 0;
 
     handovers.forEach(h => {
       const badItems = h.items ? h.items.filter(i => !i.isGood) : [];
-      if (badItems.length > 0) {
-        adaTemuan++;
-        if (badItems.some(i => i.name.includes('[MAJOR]'))) {
-          temuanMajor++;
-        }
+      const badVehicleItems = badItems.filter(i => i.category === 'A' || !i.category || i.category !== 'B');
+      const badAmtItems = badItems.filter(i => i.category === 'B');
+
+      if (badVehicleItems.length > 0) {
+        kendaraanAdaTemuan++;
+        badVehicleItems.forEach(i => {
+          if (i.name.includes('[MAJOR]')) temuanMajor++;
+          else temuanMinor++;
+        });
         if (h.issue && h.issue.status === 'RESOLVED') {
           followUpClosed++;
         } else {
           followUpOpen++;
         }
+      }
+
+      if (badAmtItems.length > 0) {
+        temuanAmt += badAmtItems.length;
       }
     });
 
@@ -977,7 +1002,7 @@ const exportPdf = async (req, res) => {
       doc.font('Helvetica-Bold').text(`Diinput Oleh: `, col2X, line3Y, { continued: true }).font('Helvetica').text(`${hSingle.user?.name || '-'} (${hSingle.user?.jabatan || '-'})`);
 
       doc.font('Helvetica-Bold').text(`Tipe / Shift: `, col3X, line1Y, { continued: true }).font('Helvetica').text(`${hSingle.type === 'mulai' ? 'Mulai' : 'Akhiri'} • ${hSingle.shift || '-'}`);
-      doc.font('Helvetica-Bold').text(`Status Unit: `, col3X, line2Y, { continued: true }).font('Helvetica').text(hSingle.status || (adaTemuan > 0 ? 'Ada Temuan' : 'Normal'));
+      doc.font('Helvetica-Bold').text(`Status Unit: `, col3X, line2Y, { continued: true }).font('Helvetica').text(hSingle.status || (kendaraanAdaTemuan > 0 ? 'Ada Isu Kendaraan' : 'Normal'));
       doc.font('Helvetica-Bold').text(`Catatan: `, col3X, line3Y, { continued: true }).font('Helvetica').text((hSingle.notes || '-').substring(0, 35));
 
       doc.y = singleBoxY + 75 + 15;
@@ -992,9 +1017,9 @@ const exportPdf = async (req, res) => {
 
     const boxes = [
       { title: 'TOTAL HANDOVER', value: `${totalHandover} Unit`, color: '#0055A5', bg: '#f0f8ff' },
-      { title: 'KONDISI NORMAL', value: `${totalHandover - adaTemuan} Unit`, color: '#00A651', bg: '#e8f8f5' },
-      { title: 'ADA TEMUAN', value: `${adaTemuan} Unit`, color: '#E67E22', bg: '#fef5e7' },
-      { title: 'TEMUAN MAJOR', value: `${temuanMajor} Isu`, color: '#C0392B', bg: '#fdedec' }
+      { title: 'KONDISI NORMAL', value: `${totalHandover - kendaraanAdaTemuan} Unit`, color: '#00A651', bg: '#e8f8f5' },
+      { title: 'ISU KENDARAAN (A)', value: `${kendaraanAdaTemuan} Unit`, color: '#E67E22', bg: '#fef5e7' },
+      { title: 'TEMUAN AMT (B)', value: `${temuanAmt} Isu`, color: '#C0392B', bg: '#fdedec' }
     ];
 
     boxes.forEach((box, i) => {
@@ -1017,26 +1042,32 @@ const exportPdf = async (req, res) => {
       datas: [
         {
           indikator: 'Handover Siap Operasi (Normal)',
-          jumlah: (totalHandover - adaTemuan).toString(),
-          proporsi: totalHandover ? Math.round(((totalHandover - adaTemuan) / totalHandover) * 100) + '%' : '0%',
-          keterangan: 'Kendaraan laik operasi tanpa kendala checklist'
+          jumlah: (totalHandover - kendaraanAdaTemuan).toString(),
+          proporsi: totalHandover ? Math.round(((totalHandover - kendaraanAdaTemuan) / totalHandover) * 100) + '%' : '0%',
+          keterangan: 'Kendaraan laik operasi tanpa isu checklist Kategori A'
         },
         {
-          indikator: 'Kendaraan Dengan Temuan',
-          jumlah: adaTemuan.toString(),
-          proporsi: totalHandover ? Math.round((adaTemuan / totalHandover) * 100) + '%' : '0%',
-          keterangan: 'Terdapat catatan kendala pada komponen checklist'
+          indikator: 'Kendaraan Dengan Isu (Kategori A)',
+          jumlah: kendaraanAdaTemuan.toString(),
+          proporsi: totalHandover ? Math.round((kendaraanAdaTemuan / totalHandover) * 100) + '%' : '0%',
+          keterangan: 'Terdapat catatan kendala isu pada komponen kendaraan'
         },
         {
-          indikator: 'Temuan Selesai (Closed)',
+          indikator: 'Temuan Kepatuhan AMT (Kategori B)',
+          jumlah: temuanAmt.toString(),
+          proporsi: '-',
+          keterangan: 'Catatan kepatuhan/kelengkapan kru AMT (tidak memengaruhi unit)'
+        },
+        {
+          indikator: 'Isu Kendaraan Selesai (Closed)',
           jumlah: followUpClosed.toString(),
-          proporsi: adaTemuan ? Math.round((followUpClosed / adaTemuan) * 100) + '%' : '0%',
-          keterangan: 'Isu telah diperbaiki dan diverifikasi oleh pengawas'
+          proporsi: kendaraanAdaTemuan ? Math.round((followUpClosed / kendaraanAdaTemuan) * 100) + '%' : '0%',
+          keterangan: 'Isu kendaraan telah diperbaiki dan diverifikasi oleh pengawas'
         },
         {
-          indikator: 'Temuan Menunggu (Open)',
+          indikator: 'Isu Kendaraan Menunggu (Open)',
           jumlah: followUpOpen.toString(),
-          proporsi: adaTemuan ? Math.round((followUpOpen / adaTemuan) * 100) + '%' : '0%',
+          proporsi: kendaraanAdaTemuan ? Math.round((followUpOpen / kendaraanAdaTemuan) * 100) + '%' : '0%',
           keterangan: 'Perlu tindak lanjut perbaikan teknisi / pengawas'
         }
       ]
@@ -1111,7 +1142,9 @@ const exportPdf = async (req, res) => {
       const isMulai = h.type === 'mulai';
       const typeStr = isMulai ? 'Mulai' : 'Akhiri';
       const badItems = h.items ? h.items.filter(i => !i.isGood) : [];
-      const isNormal = badItems.length === 0;
+      const badVehicleItems = badItems.filter(i => i.category === 'A' || !i.category || i.category !== 'B');
+      const badAmtItems = badItems.filter(i => i.category === 'B');
+      const isVehicleNormal = badVehicleItems.length === 0;
 
       const amtDisplay = formatAmtCrewPdf(h);
       const pelaporDisplay = `${h.user?.name || '-'}\n(${h.user?.jabatan || '-'})`;
@@ -1120,17 +1153,30 @@ const exportPdf = async (req, res) => {
       const unifiedNotes = (h.notes && h.notes.trim()) || legacyPhotoNote;
 
       const temuanParts = [];
-      if (badItems.length > 0) {
-        temuanParts.push(badItems.map(i => i.name.replace(/\[MAJOR\]|\[MINOR\]/g, '').trim()).join(', '));
+      if (badVehicleItems.length > 0) {
+        temuanParts.push(`Isu Kendaraan: ` + badVehicleItems.map(i => i.name.replace(/\[MAJOR\]|\[MINOR\]/g, '').trim()).join(', '));
+      }
+      if (badAmtItems.length > 0) {
+        temuanParts.push(`Isu AMT: ` + badAmtItems.map(i => i.name.replace(/\[MAJOR\]|\[MINOR\]/g, '').trim()).join(', '));
       }
       if (unifiedNotes) {
         temuanParts.push(`Catatan: ${unifiedNotes}`);
       }
       const catatanStr = temuanParts.length > 0 ? temuanParts.join('\n') : 'Semua item checklist normal';
 
+      let kondisiStr = 'Normal';
+      if (!isVehicleNormal) {
+        kondisiStr = 'Isu Kendaraan';
+      } else if (badAmtItems.length > 0) {
+        kondisiStr = 'Normal (Isu AMT)';
+      }
+
       let followUpStr = 'Normal';
-      if (!isNormal) {
+      if (!isVehicleNormal) {
         followUpStr = (h.issue && h.issue.status === 'RESOLVED') ? 'Closed' : 'Open';
+      } else if (badAmtItems.length > 0) {
+        const allAmtResolved = h.amtIssues && h.amtIssues.length > 0 && h.amtIssues.every(ai => ai.status === 'RESOLVED');
+        followUpStr = allAmtResolved ? 'Closed (AMT)' : 'Open (AMT)';
       }
 
       table1.datas.push({
@@ -1140,33 +1186,52 @@ const exportPdf = async (req, res) => {
         amt: amtDisplay,
         pelapor: pelaporDisplay,
         tipe: `${typeStr}\n${h.shift || '-'}`,
-        kondisi: isNormal ? 'Normal' : 'Ada Temuan',
+        kondisi: kondisiStr,
         catatan: catatanStr,
         status: followUpStr
       });
 
-      const verifiedBy = h.issue && h.issue.resolvedBy ? h.issue.resolvedBy : (isNormal ? 'Sistem' : 'Pengawas');
+      const verifiedBy = h.issue && h.issue.resolvedBy ? h.issue.resolvedBy : (isVehicleNormal ? 'Sistem' : 'Pengawas');
       const verifiedTime = h.issue && h.issue.resolvedAt
         ? formatDate(h.issue.resolvedAt)
-        : (isNormal ? '-' : formatDate(h.timestamp));
+        : (isVehicleNormal ? '-' : formatDate(h.timestamp));
 
       table2.datas.push({
         id: getHandoverCode(h, handoverNoMap, hIdx + 1),
         nopol: h.noPolisi,
         waktu: formatDate(h.timestamp),
         petugas: `${formatAmtCrew(h)}\n(${h.user?.jabatan || '-'})`,
-        status: isNormal
+        status: isVehicleNormal
           ? 'Siap Operasi'
           : (h.issue && h.issue.status === 'RESOLVED' ? 'Selesai Verifikasi' : 'Perlu Perbaikan'),
         admin: verifiedBy,
         waktuVerif: verifiedTime
       });
 
-      if (!isNormal) {
+      if (badItems.length > 0) {
         badItems.forEach(item => {
+          const isCategoryB = item.category === 'B';
           const isItemMajor = item.name.includes('[MAJOR]');
           const itemName = item.name.replace(/\[MAJOR\]|\[MINOR\]/g, '').trim();
           const descText = `${item.description || `Catatan kondisi ${itemName.toLowerCase()}`}${item.repairNote ? `\n[Perbaikan]: ${item.repairNote}` : ''}`;
+          
+          let itemSeverity = 'Minor';
+          let itemTindakan = 'Perlu Perbaikan';
+          let itemStatus = 'Open';
+
+          if (isCategoryB) {
+            itemSeverity = 'Kepatuhan AMT';
+            itemTindakan = 'Tindak Lanjut Kru AMT';
+            const relatedAmtIssue = h.amtIssues?.find(a => a.itemName === itemName);
+            itemStatus = relatedAmtIssue?.status === 'RESOLVED' ? 'Closed' : 'Open';
+          } else {
+            itemSeverity = isItemMajor ? 'Major' : 'Minor';
+            itemTindakan = item.isRepaired
+              ? 'Selesai Diperbaiki'
+              : (h.issue && h.issue.status === 'RESOLVED' ? 'Telah diverifikasi' : 'Perlu Perbaikan');
+            itemStatus = (h.issue && h.issue.status === 'RESOLVED') || item.isRepaired ? 'Closed' : 'Open';
+          }
+
           table3.datas.push({
             id: getHandoverCode(h, handoverNoMap, hIdx + 1),
             nopol: h.noPolisi,
@@ -1174,12 +1239,10 @@ const exportPdf = async (req, res) => {
             amt: h.amt1 || h.user?.name || '-',
             jabatan: h.user?.jabatan || '-',
             area: itemName,
-            severity: isItemMajor ? 'Major' : 'Minor',
+            severity: itemSeverity,
             desc: descText,
-            tindakan: item.isRepaired
-              ? 'Selesai Diperbaiki'
-              : (h.issue && h.issue.status === 'RESOLVED' ? 'Telah diverifikasi' : 'Perlu Perbaikan'),
-            status: (h.issue && h.issue.status === 'RESOLVED') || item.isRepaired ? 'Closed' : 'Open'
+            tindakan: itemTindakan,
+            status: itemStatus
           });
         });
       }

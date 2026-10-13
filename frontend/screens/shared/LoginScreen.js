@@ -22,6 +22,7 @@ export default function LoginScreen({ navigation }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [showForgotPromptModal, setShowForgotPromptModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmittingReset, setIsSubmittingReset] = useState(false);
 
@@ -30,12 +31,14 @@ export default function LoginScreen({ navigation }) {
     loadSavedApiUrl();
   }, []);
 
-
-
   // Tangani tombol back hardware Android saat di halaman Login agar keluar dari aplikasi (tidak balik ke dashboard)
   useFocusEffect(
     React.useCallback(() => {
       const onBackPress = () => {
+        if (showForgotPromptModal) {
+          setShowForgotPromptModal(false);
+          return true;
+        }
         if (showForgotPasswordModal) {
           setShowForgotPasswordModal(false);
           return true;
@@ -46,7 +49,7 @@ export default function LoginScreen({ navigation }) {
 
       const backSubscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
       return () => backSubscription.remove();
-    }, [showForgotPasswordModal])
+    }, [showForgotPasswordModal, showForgotPromptModal])
   );
 
   // Animasi crossfade untuk maskot
@@ -70,7 +73,6 @@ export default function LoginScreen({ navigation }) {
       setErrorMessage('Mohon isi Username dan Password terlebih dahulu!');
       return;
     }
-    // Remove restrictive regex validation, just check for empty strings
     if (isUsernameEmpty) {
       setErrorMessage('Mohon isi Username terlebih dahulu!');
       return;
@@ -88,6 +90,8 @@ export default function LoginScreen({ navigation }) {
       const refreshToken = res.data.refreshToken;
 
       if (loggedInUser && token) {
+        setShowForgotPromptModal(false);
+        setErrorMessage('');
         await AsyncStorage.setItem('user', JSON.stringify(loggedInUser));
         await AsyncStorage.setItem('token', token);
         if (refreshToken) {
@@ -108,7 +112,18 @@ export default function LoginScreen({ navigation }) {
         });
       }
     } catch (error) {
-      setErrorMessage(error.response?.data?.error || 'Login gagal, periksa kembali username & password');
+      const resp = error.response;
+      if (resp?.status === 401) {
+        setErrorMessage(resp.data?.error || 'Username atau password salah');
+        // Jika 3 kali atau lebih gagal berturut-turut, tampilkan modal bantuan lupa password
+        if (resp.data?.showForgotPasswordPrompt || resp.data?.failedAttempts >= 3) {
+          setShowForgotPromptModal(true);
+        }
+      } else if (resp?.status === 400) {
+        setErrorMessage(resp.data?.error || 'Mohon periksa data masukan Anda');
+      } else {
+        setErrorMessage(resp?.data?.error || resp?.data?.message || 'Gagal terhubung ke server. Periksa koneksi internet Anda.');
+      }
     } finally {
       setLoading(false);
     }
@@ -123,27 +138,31 @@ export default function LoginScreen({ navigation }) {
   const handleForgotPassword = async () => {
     if (isSubmittingReset) return; // Cegah double-tap
 
-    if (!username.trim()) {
+    const trimmedUsername = username.trim();
+    if (!trimmedUsername) {
       setShowForgotPasswordModal(false);
       showNotification('Username Kosong', 'Mohon isi username Anda pada form login sebelum meminta reset password.', 'error');
       return;
     }
 
     setIsSubmittingReset(true);
-    setShowForgotPasswordModal(false);
 
-    // Langsung tampilkan notif sukses (optimistic)
-    showNotification('Berhasil', `Permintaan reset password untuk '${username}' telah dikirim ke Admin.`, 'success');
-
-    // Kirim API di background
     try {
-      await axios.post(`${API_URL}/api/password-reset/request`, {
-        email: username,
+      const res = await axios.post(`${API_URL}/api/password-reset/request`, {
+        username: trimmedUsername,
         reason: 'Lupa password dari aplikasi'
       });
+      
+      setShowForgotPasswordModal(false);
+      showNotification(
+        'Permintaan Terkirim',
+        res.data?.message || `Permintaan reset password untuk '${trimmedUsername}' telah berhasil dikirim ke Admin.`,
+        'success'
+      );
     } catch (error) {
-      // Jika gagal, timpa notif sukses dengan notif error
-      showNotification('Gagal', error.response?.data?.message || "Gagal mengirim permintaan reset password.", 'error');
+      setShowForgotPasswordModal(false);
+      const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Gagal mengirim permintaan reset password. Periksa koneksi internet Anda.';
+      showNotification('Gagal', errorMsg, 'error');
     } finally {
       setIsSubmittingReset(false);
     }
@@ -214,12 +233,55 @@ export default function LoginScreen({ navigation }) {
           </View>
         </Modal>
 
+        {/* Modal Bantuan Lupa Password Setelah 3x Gagal */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={showForgotPromptModal}
+          onRequestClose={() => setShowForgotPromptModal(false)}
+        >
+          <View style={tw`flex-1 justify-center items-center bg-black/50 px-4`}>
+            <View style={tw`bg-white w-full max-w-sm rounded-[30px] p-8 items-center shadow-2xl`}>
+              <View style={tw`bg-amber-50 p-4 rounded-full mb-4`}>
+                <Ionicons name="key-outline" size={40} color="#F59E0B" />
+              </View>
+              <Text style={tw`text-2xl font-black text-gray-800 mb-2 text-center`}>
+                Apakah Anda Lupa Password?
+              </Text>
+              <Text style={tw`text-gray-600 text-center text-sm md:text-base mb-6 leading-relaxed`}>
+                Username atau password yang dimasukkan tidak sesuai sebanyak 3 kali. Apakah Anda lupa password? Silakan hubungi Admin untuk mendapatkan bantuan reset password.
+              </Text>
+
+              <View style={tw`w-full flex-row justify-between`}>
+                <TouchableOpacity
+                  style={tw`flex-1 bg-gray-100 py-3.5 rounded-2xl mr-2 items-center`}
+                  onPress={() => setShowForgotPromptModal(false)}
+                >
+                  <Text style={tw`text-gray-700 font-bold`}>Coba Lagi</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={tw`flex-1 bg-[#ED1C24] py-3.5 rounded-2xl ml-2 items-center shadow-md`}
+                  onPress={() => {
+                    setShowForgotPromptModal(false);
+                    setShowForgotPasswordModal(true);
+                  }}
+                >
+                  <Text style={tw`text-white font-bold text-center text-xs md:text-sm`}>
+                    Lupa Password / Hubungi Admin
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Modal Kustom Lupa Password */}
         <ForgotPasswordModal
           visible={showForgotPasswordModal}
           onClose={() => setShowForgotPasswordModal(false)}
           onSubmit={handleForgotPassword}
           isSubmitting={isSubmittingReset}
+          username={username}
         />
 
 
@@ -283,7 +345,11 @@ export default function LoginScreen({ navigation }) {
                     style={tw`flex-1 p-4 text-gray-800 font-bold`}
                     placeholder="Ketik username Anda"
                     value={username}
-                    onChangeText={(text) => { setUsername(text); setErrorMessage(''); }}
+                    onChangeText={(text) => {
+                      setUsername(text);
+                      setErrorMessage('');
+                      if (showForgotPromptModal) setShowForgotPromptModal(false);
+                    }}
                     onFocus={() => { setIsUsernameFocused(true); setIsPasswordFocused(false); }}
                     onBlur={() => setIsUsernameFocused(false)}
                     autoCapitalize="none"
