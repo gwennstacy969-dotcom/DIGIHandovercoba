@@ -116,8 +116,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
 
   build-web-dashboard:
     name: Compile React Native Web Dashboard
@@ -208,25 +207,36 @@ jobs:
               cp backend/.env deploy/docker/.env
             fi
 
+            echo "=== AUDIT CURRENT HOST STATE BEFORE CUTOVER ==="
+            sudo ss -tulpn | grep 3000 || true
+            docker ps -a || true
+
+            # Gracefully stop ANY PM2 service occupying port 3000
+            if command -v pm2 >/dev/null 2>&1; then
+              echo "Stopping all PM2 processes..."
+              sudo pm2 stop all || true
+            fi
+
+            # Force stop and remove ANY old container on port 3000 or named pertamina_handover_backend
+            echo "Force stopping previous backend container..."
+            docker stop pertamina_handover_backend || true
+            docker rm -f pertamina_handover_backend || true
+            docker compose -f docker-compose.yml stop backend || true
+
             echo "🚀 [2/5] Pulling latest backend container image from GHCR..."
             docker pull ghcr.io/${{ github.repository }}/backend:latest
-            docker compose -f deploy/docker/docker-compose.prod.yml pull backend || true
+
+            echo "=== VERIFYING PULLED CONTAINER OS & ENGINES ==="
+            docker run --rm ghcr.io/${{ github.repository }}/backend:latest cat /etc/os-release
+            docker run --rm ghcr.io/${{ github.repository }}/backend:latest ls -la /app/node_modules/.prisma/client/
 
             echo "🚀 [3/5] Applying pending Prisma database migrations safely..."
             docker compose -f deploy/docker/docker-compose.prod.yml run --rm backend npx prisma migrate deploy || true
 
-            # Gracefully stop legacy PM2 if still occupying port 3000
-            if command -v pm2 >/dev/null 2>&1 && sudo pm2 list 2>/dev/null | grep -q "pertamina-backend"; then
-              echo "Stopping legacy PM2 service to free port 3000 for Docker..."
-              sudo pm2 stop pertamina-backend || true
-            fi
-
-            echo "🚀 [4/5] Stopping old container and recreating with new image..."
-            docker compose -f deploy/docker/docker-compose.prod.yml stop backend || true
-            docker compose -f deploy/docker/docker-compose.prod.yml rm -f backend || true
+            echo "🚀 [4/5] Launching fresh backend container..."
             docker compose -f deploy/docker/docker-compose.prod.yml up -d --force-recreate --no-deps backend
 
-            echo "🚀 [5/5] Performing Health Check Verification..."
+            echo "🚀 [5/5] Performing Health Check & API Verification..."
             HEALTH_SUCCESS=0
             for i in {1..10}; do
               if curl -s -f http://127.0.0.1:3000/health > /dev/null; then
@@ -239,16 +249,14 @@ jobs:
 
             if [ $HEALTH_SUCCESS -eq 1 ]; then
               echo "✅ Deployment successful! Service is healthy at /health"
-              if command -v pm2 >/dev/null 2>&1; then
-                sudo pm2 save || true
-              fi
+              echo "=== Verifying /api/auth/login directly ==="
+              curl -s -X POST http://127.0.0.1:3000/api/auth/login \
+                -H "Content-Type: application/json" \
+                -d '{"username":"yoan","password":"invalid_test_password"}' || true
+              echo ""
             else
               echo "❌ Health check failed! Showing container logs..."
               docker logs --tail 100 pertamina_handover_backend || true
-              docker compose -f deploy/docker/docker-compose.prod.yml stop backend || true
-              if command -v pm2 >/dev/null 2>&1; then
-                sudo pm2 start pertamina-backend || true
-              fi
               exit 1
             fi
           EOF

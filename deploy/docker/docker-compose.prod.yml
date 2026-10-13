@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ${BACKEND_IMAGE:-ghcr.io/gwennstacy969-dotcom/handover-app/backend:latest}
+    image: ghcr.io/gwennstacy969-dotcom/handover-app/backend:latest
     container_name: pertamina_handover_backend
     restart: unless-stopped
     network_mode: "host"
