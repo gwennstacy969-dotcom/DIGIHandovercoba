@@ -151,11 +151,23 @@ jobs:
 
             cd /var/www/handover-app
 
+            # Ensure production .env exists by copying existing backend/.env if not present
+            if [ ! -f "deploy/docker/.env" ] && [ -f "backend/.env" ]; then
+              echo "Creating deploy/docker/.env from existing backend/.env..."
+              cp backend/.env deploy/docker/.env
+            fi
+
             echo "🚀 [2/5] Pulling latest backend container image..."
             docker compose -f deploy/docker/docker-compose.prod.yml pull backend
 
             echo "🚀 [3/5] Applying pending Prisma database migrations safely..."
             docker compose -f deploy/docker/docker-compose.prod.yml run --rm backend npx prisma migrate deploy || true
+
+            # Gracefully stop legacy PM2 if still occupying port 3000
+            if command -v pm2 >/dev/null 2>&1 && sudo pm2 list 2>/dev/null | grep -q "pertamina-backend"; then
+              echo "Stopping legacy PM2 service to free port 3000 for Docker..."
+              sudo pm2 stop pertamina-backend || true
+            fi
 
             echo "🚀 [4/5] Updating running backend container..."
             docker compose -f deploy/docker/docker-compose.prod.yml up -d --no-deps --remove-orphans backend
