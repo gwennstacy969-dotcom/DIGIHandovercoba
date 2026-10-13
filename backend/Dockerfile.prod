@@ -8,8 +8,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install build tools for native C++ bindings (sharp, bcrypt)
-RUN apk add --no-cache python3 make g++
+# Install build tools for native C++ bindings (sharp, bcrypt) and OpenSSL
+RUN apk add --no-cache python3 make g++ openssl
 
 COPY package*.json ./
 COPY prisma ./prisma/
@@ -29,8 +29,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Install curl for container health check
-RUN apk add --no-cache curl
+# Install curl, openssl, libssl3, and libc6-compat for Prisma query engine runtime
+RUN apk add --no-cache curl openssl libssl3 libc6-compat
 
 # Copy compiled dependencies and source files from builder
 COPY --from=builder /app/node_modules ./node_modules
