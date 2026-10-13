@@ -74,6 +74,16 @@ function setupPrismaMiddleware(client) {
   });
 }
 
+// Auto-guard for Linux containers: Explicitly point to Debian OpenSSL 3 engine if present
+if (process.platform === 'linux' && !process.env.PRISMA_QUERY_ENGINE_LIBRARY) {
+  const fs = require('fs');
+  const path = require('path');
+  const debianEngine = path.resolve(__dirname, '../../node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node');
+  if (fs.existsSync(debianEngine)) {
+    process.env.PRISMA_QUERY_ENGINE_LIBRARY = debianEngine;
+  }
+}
+
 // PrismaClient is attached to global in development to prevent exhausting database connection limit
 let prisma;
 

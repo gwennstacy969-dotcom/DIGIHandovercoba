@@ -15,6 +15,7 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@pertamina.com}
       - EMAIL_USER=${EMAIL_USER}
       - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - PRISMA_QUERY_ENGINE_LIBRARY=${PRISMA_QUERY_ENGINE_LIBRARY:-/app/node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node}
     volumes:
       # Critical persistent data folders mounted from host
       - ${UPLOADS_PATH:-/var/www/handover-app/backend/uploads}:/app/uploads

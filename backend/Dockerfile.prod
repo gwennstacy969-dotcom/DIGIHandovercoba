@@ -30,6 +30,7 @@ FROM node:20-bookworm-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV PRISMA_QUERY_ENGINE_LIBRARY=/app/node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node
 
 # Install curl, openssl, and ca-certificates for Prisma query engine runtime & healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -45,7 +46,7 @@ COPY --from=builder /app/index.js ./index.js
 
 # Create required persistent storage folders and adjust permissions
 RUN mkdir -p /app/uploads /app/barcodes /app/logs && \
-    chown -R node:node /app
+    chown -R node:node /app/uploads /app/barcodes /app/logs
 
 # Switch to non-root user
 USER node
