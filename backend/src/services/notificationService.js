@@ -59,9 +59,9 @@ async function sendAmtComplianceNotification(handoverId, noPolisi, amtIssueItems
   console.log(`[NOTIFICATION AMT COMPLIANCE] AMT: ${amtName}, Kendaraan: ${noPolisi}, Items: ${amtIssueItems.length}`);
 
   try {
-    const listItems = amtIssueItems.map(i => '- ' + i.name).join('\n');
-    const notificationTitle = `Temuan Kepatuhan AMT: ${amtName}`;
-    const textBody = `Petugas ${amtName} (${noPolisi}) memiliki catatan kepatuhan / perlengkapan kerja belum lengkap:\n${listItems}\n\nCatatan: Kendaraan tetap dapat beroperasi (tidak diblokir), namun kru bertugas wajib melengkapi perlengkapan sesuai standar HSSE.`;
+    const listItems = amtIssueItems.map(i => i.name).join(', ');
+    const notificationTitle = `Temuan Kepatuhan AMT: ${amtName}`.slice(0, 190);
+    const textBody = `Petugas ${amtName} (${noPolisi}) catatan kepatuhan belum lengkap: ${listItems}`.slice(0, 190);
 
     const notifData = [
       {
@@ -88,8 +88,8 @@ async function sendAmtComplianceNotification(handoverId, noPolisi, amtIssueItems
 
     if (user && user.id) {
       notifData.push({
-        title: `Peringatan Perlengkapan Kerja: ${amtName}`,
-        message: `Anda memiliki catatan perlengkapan belum lengkap:\n${listItems}\n\nHarap segera lengkapi perlengkapan wajib Anda.`,
+        title: `Peringatan Perlengkapan Kerja: ${amtName}`.slice(0, 190),
+        message: `Catatan perlengkapan belum lengkap: ${listItems}`.slice(0, 190),
         type: 'WARNING',
         targetRole: 'USER',
         targetUserId: user.id,

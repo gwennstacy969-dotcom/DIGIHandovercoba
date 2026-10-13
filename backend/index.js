@@ -15,6 +15,11 @@ const { authenticateToken, authorizeRole } = require('./src/middleware/auth');
 const errorHandler = require('./src/middleware/errorHandler');
 
 // Startup Environment Validation (A2)
+if (process.env.NODE_ENV === 'test') {
+  process.env.DATABASE_URL = process.env.DATABASE_URL || 'mysql://root:rootpassword@127.0.0.1:3306/handover_pertamina';
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret_production_ready_32_chars';
+  process.env.REFRESH_SECRET = process.env.REFRESH_SECRET || 'test_refresh_secret_production_ready_32_chars';
+}
 const requiredEnvVars = ['DATABASE_URL', 'JWT_SECRET', 'REFRESH_SECRET'];
 const missingVars = requiredEnvVars.filter(v => !process.env[v]);
 if (missingVars.length > 0) {
@@ -123,10 +128,13 @@ app.use('/api/notifications', notificationRoutes);
 // Global Error Handler Middleware
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, '0.0.0.0', () => {
-  logger.info(`Backend server running on port ${PORT} (0.0.0.0)`);
-  console.log(`Backend server running on port ${PORT} (0.0.0.0)`);
-});
+let server;
+if (process.env.NODE_ENV !== 'test') {
+  const PORT = process.env.PORT || 3000;
+  server = app.listen(PORT, '0.0.0.0', () => {
+    logger.info(`Backend server running on port ${PORT} (0.0.0.0)`);
+    console.log(`Backend server running on port ${PORT} (0.0.0.0)`);
+  });
+}
 
 module.exports = app;

@@ -2,26 +2,40 @@ const Redis = require('ioredis');
 const logger = require('../config/logger');
 
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-const redis = new Redis(redisUrl, {
-  retryStrategy(times) {
-    if (times > 3) {
-      logger.warn('Redis connection failed, gracefully degrading cache features.');
-      return null; // Stop retrying
+let redis;
+if (process.env.NODE_ENV === 'test') {
+  redis = {
+    status: 'disabled',
+    on: () => {},
+    get: async () => null,
+    set: async () => false,
+    del: async () => false,
+    scanStream: () => ({
+      [Symbol.asyncIterator]: async function* () {}
+    })
+  };
+} else {
+  redis = new Redis(redisUrl, {
+    retryStrategy(times) {
+      if (times > 3) {
+        logger.warn('Redis connection failed, gracefully degrading cache features.');
+        return null; // Stop retrying
+      }
+      return Math.min(times * 50, 2000);
+    },
+    maxRetriesPerRequest: 1
+  });
+
+  redis.on('error', (error) => {
+    if (error.code !== 'ECONNREFUSED') {
+      logger.error('Redis error: ', error);
     }
-    return Math.min(times * 50, 2000);
-  },
-  maxRetriesPerRequest: 1
-});
+  });
 
-redis.on('error', (error) => {
-  if (error.code !== 'ECONNREFUSED') {
-    logger.error('Redis error: ', error);
-  }
-});
-
-redis.on('connect', () => {
-  logger.info('Connected to Redis server');
-});
+  redis.on('connect', () => {
+    logger.info('Connected to Redis server');
+  });
+}
 
 class CacheService {
   /**
