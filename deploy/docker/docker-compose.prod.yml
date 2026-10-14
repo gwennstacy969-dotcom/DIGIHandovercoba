@@ -1,0 +1,74 @@
+services:
+  backend:
+    image: ghcr.io/gwennstacy969-dotcom/handover-app/backend:latest
+    container_name: pertamina_handover_backend
+    restart: unless-stopped
+    network_mode: "host"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL:-redis://127.0.0.1:6379}
+      - JWT_SECRET=${JWT_SECRET}
+      - REFRESH_SECRET=${REFRESH_SECRET}
+      - CORS_ORIGIN=${CORS_ORIGIN:-https://pertamina-handover.com,https://www.pertamina-handover.com}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@pertamina.com}
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - PRISMA_QUERY_ENGINE_LIBRARY=${PRISMA_QUERY_ENGINE_LIBRARY:-/app/node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node}
+    volumes:
+      # Critical persistent data folders mounted from host
+      - ${UPLOADS_PATH:-/var/www/handover-app/backend/uploads}:/app/uploads
+      - ${BARCODES_PATH:-/var/www/handover-app/backend/barcodes}:/app/barcodes
+      - ${LOGS_PATH:-/var/www/handover-app/backend/logs}:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  mysql:
+    profiles: ["standalone"]
+    image: mysql:8.0
+    container_name: pertamina_handover_mysql
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-handover_pertamina}
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    profiles: ["standalone"]
+    image: redis:7-alpine
+    container_name: pertamina_handover_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local

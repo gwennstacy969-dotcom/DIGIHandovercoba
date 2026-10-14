@@ -1,34 +1,61 @@
-FROM node:20-alpine AS builder
+# ==============================================================
+# Production Dockerfile for Pertamina HandoverApp Backend
+# Multi-stage, Debian Bookworm Slim, non-root secure container
+# ==============================================================
+
+# Stage 1: Build & Dependencies
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies if needed for sharp or bcrypt
-RUN apk add --no-cache python3 make g++
+# Install build tools for native C++ bindings (bcrypt) and OpenSSL
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 COPY prisma ./prisma/
 
-RUN npm install
+# Install dependencies including dev for generation/build
+RUN npm ci
 
 COPY . .
 
+# Generate Prisma Client
 RUN npx prisma generate
 
-FROM node:20-alpine
+# Stage 2: Minimal Production Runner
+FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
 
-# Ensure curl for healthchecks
-RUN apk add --no-cache curl
+ENV NODE_ENV=production
+ENV PRISMA_QUERY_ENGINE_LIBRARY=/app/node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node
 
+# Install curl, openssl, and ca-certificates for Prisma query engine runtime & healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy compiled dependencies and source files from builder
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/index.js ./index.js
-# If you have public or static folders, copy them here too
-# COPY --from=builder /app/barcodes ./barcodes
+
+# Create required persistent storage folders and adjust permissions
+RUN mkdir -p /app/uploads /app/barcodes /app/logs && \
+    chown -R node:node /app/uploads /app/barcodes /app/logs
+
+# Switch to non-root user
+USER node
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+# Container healthcheck
+HEALTHCHECK --interval=20s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
+
+# Start server directly without npm wrapper for clean signal propagation
+CMD ["node", "index.js"]

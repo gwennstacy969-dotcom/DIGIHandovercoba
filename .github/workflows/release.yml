@@ -1,0 +1,140 @@
+name: Release & Mobile APK Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      custom_version:
+        description: 'Custom version string (optional, e.g. v1.1.0)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  version-and-release:
+    name: Generate Version & Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine New Version Tag
+        id: semver
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+          echo "Latest tag found: ${LATEST_TAG}"
+          CLEAN_VERSION=${LATEST_TAG#v}
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${CLEAN_VERSION}"
+          MAJOR=${MAJOR:-1}
+          MINOR=${MINOR:-0}
+          PATCH=${PATCH:-0}
+
+          if [ -n "${{ github.event.inputs.custom_version }}" ]; then
+            NEW_TAG="${{ github.event.inputs.custom_version }}"
+            if [[ ! $NEW_TAG =~ ^v ]]; then NEW_TAG="v${NEW_TAG}"; fi
+          elif [ "${{ github.event.inputs.version_type }}" == "major" ]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+            NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          elif [ "${{ github.event.inputs.version_type }}" == "minor" ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+            NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          else
+            PATCH=$((PATCH + 1))
+            NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+
+          echo "Target Release Tag: ${NEW_TAG}"
+          echo "tag=${NEW_TAG}" >> $GITHUB_OUTPUT
+          echo "version=${NEW_TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Prebuild Native Android Project
+        working-directory: ./frontend
+        env:
+          EXPO_PUBLIC_API_URL: https://pertamina-handover.com
+        run: npx expo prebuild --platform android --clean
+
+      - name: Build Release APK via Gradle
+        working-directory: ./frontend/android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Prepare Release APK Artifact
+        run: |
+          mkdir -p ./release-artifacts
+          APK_SOURCE="frontend/android/app/build/outputs/apk/release/app-release.apk"
+          if [ -f "$APK_SOURCE" ]; then
+            cp "$APK_SOURCE" "./release-artifacts/DIGI-Handover-${{ steps.semver.outputs.tag }}.apk"
+            cp "$APK_SOURCE" "./release-artifacts/digi-handover.apk"
+            echo "APK successfully prepared."
+          else
+            echo "Error: Release APK not found at $APK_SOURCE"
+            exit 1
+          fi
+
+      - name: Create Git Tag & GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.semver.outputs.tag }}
+          name: "DIGI Handover ${{ steps.semver.outputs.tag }}"
+          body: |
+            ## 🚛 DIGI Handover Release ${{ steps.semver.outputs.tag }}
+            
+            **Pembaruan Sistem & Aplikasi Armada:**
+            - Rilis otomatis via GitHub Actions Pipeline.
+            - Versi: `${{ steps.semver.outputs.tag }}`
+            - Target API: `https://pertamina-handover.com`
+            
+            ### 📥 Download Android Client:
+            Unduh file `DIGI-Handover-${{ steps.semver.outputs.tag }}.apk` terlampir pada release ini, atau gunakan link download permanen:
+            👉 **[Download APK Stabil Terbaru](https://pertamina-handover.com/download/digi-handover.apk)**
+          files: |
+            ./release-artifacts/DIGI-Handover-${{ steps.semver.outputs.tag }}.apk
+            ./release-artifacts/digi-handover.apk
+
+      - name: Publish APK to Permanent Download URL on VPS
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+          # Ensure download directory exists on VPS
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "mkdir -p /var/www/handover-web/download"
+
+          # Upload latest permanent APK and versioned archive
+          scp ./release-artifacts/digi-handover.apk ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/handover-web/download/digi-handover.apk
+          scp ./release-artifacts/DIGI-Handover-${{ steps.semver.outputs.tag }}.apk ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/handover-web/download/
+
+          echo "✅ Permanent APK download link updated successfully at https://pertamina-handover.com/download/digi-handover.apk"

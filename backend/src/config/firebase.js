@@ -16,7 +16,7 @@ if (fs.existsSync(serviceAccountPath)) {
 }
 
 const sendPushNotification = async (fcmToken, title, body, data = {}) => {
-  if (!admin.apps.length) {
+  if (!admin.apps || !admin.apps.length) {
     console.warn('Firebase Admin not initialized, skipping notification send.');
     return false;
   }

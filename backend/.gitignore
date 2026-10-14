@@ -1,8 +1,21 @@
+# Dependencies
 node_modules/
 
-uploads/
+# Environment files
+.env
+.env.*
+.env.backup
+.env.local
+!.env.example
+
+# Sensitive Storage & Uploads
+uploads/*
+!uploads/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# IDE & DB files
 .vscode/
 *.db
 *.db-journal
-logs/
-.env.backup
+*.log

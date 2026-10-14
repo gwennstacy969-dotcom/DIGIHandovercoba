@@ -1,0 +1,298 @@
+name: Production Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'deploy/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test-backend:
+    name: Backend Unit Tests (with MySQL Service)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: handover_pertamina
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+    env:
+      DATABASE_URL: "mysql://root:rootpassword@127.0.0.1:3306/handover_pertamina"
+      JWT_SECRET: "test_jwt_secret_production_ready_32_chars"
+      REFRESH_SECRET: "test_refresh_secret_production_ready_32_chars"
+      NODE_ENV: test
+    defaults:
+      run:
+        working-directory: ./backend
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Setup Prisma Client & Test DB Schema
+        run: |
+          npx prisma generate
+          npx prisma db push --skip-generate
+
+      - name: Run Backend Tests
+        run: npm test
+
+  test-frontend:
+    name: Frontend Component & Logic Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run Frontend Tests
+        run: npm test
+
+  build-backend-image:
+    name: Build & Push Docker Image to GHCR
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Metadata (Tags & Labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/backend
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.prod
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          no-cache: true
+
+  build-web-dashboard:
+    name: Compile React Native Web Dashboard
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Export Web Bundle
+        env:
+          EXPO_PUBLIC_API_URL: https://pertamina-handover.com
+        run: npx expo export --platform web
+
+      - name: Upload Web Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: frontend/dist/
+          retention-days: 7
+
+  deploy-to-vps:
+    name: Deploy Container & Web to SumoPod VPS
+    needs: [build-backend-image, build-web-dashboard]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Web Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: ./web-dist
+
+      - name: Setup SSH Key & Known Hosts
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Prepare Destination Directories & Permissions on VPS
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            sudo mkdir -p /var/www/handover-web /var/www/handover-web/download /var/www/handover-app/deploy /var/www/handover-app/backend/uploads /var/www/handover-app/backend/barcodes /var/www/handover-app/backend/logs
+            sudo chown -R ${{ secrets.VPS_USER }}:${{ secrets.VPS_USER }} /var/www/handover-web /var/www/handover-app
+            sudo chmod -R 775 /var/www/handover-web /var/www/handover-app
+            sudo chmod -R 777 /var/www/handover-app/backend/uploads /var/www/handover-app/backend/barcodes /var/www/handover-app/backend/logs
+          EOF
+
+      - name: Sync Static Web Files to VPS
+        run: |
+          rsync -avz --no-owner --no-group --delete ./web-dist/ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/handover-web/
+
+      - name: Sync Production Deploy Configs to VPS
+        run: |
+          rsync -avz --no-owner --no-group ./deploy/ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/handover-app/deploy/
+
+      - name: Ensure Web File Permissions for Nginx
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "sudo chmod -R 755 /var/www/handover-web"
+
+      - name: Execute Docker Compose Rolling Update on VPS
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -e
+            echo "🚀 [1/5] Logging in to GHCR..."
+            echo "${{ secrets.CR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            cd /var/www/handover-app
+
+            echo "=== SYNCHRONIZING ENVIRONMENT FILE ==="
+            ENV_SOURCE=""
+            if [ -f "backend/.env" ]; then
+              ENV_SOURCE="backend/.env"
+            elif [ -f "deploy/docker/.env" ]; then
+              ENV_SOURCE="deploy/docker/.env"
+            elif [ -f ".env" ]; then
+              ENV_SOURCE=".env"
+            fi
+
+            if [ -n "$ENV_SOURCE" ]; then
+              echo "Found production .env at $ENV_SOURCE, propagating across project..."
+              [ "$ENV_SOURCE" != ".env" ] && cp -f "$ENV_SOURCE" .env || true
+              [ "$ENV_SOURCE" != "backend/.env" ] && cp -f "$ENV_SOURCE" backend/.env || true
+              [ "$ENV_SOURCE" != "deploy/docker/.env" ] && cp -f "$ENV_SOURCE" deploy/docker/.env || true
+              chmod 600 .env backend/.env deploy/docker/.env 2>/dev/null || true
+            else
+              echo "❌ CRITICAL: No .env found on VPS in backend/, deploy/docker/, or root!"
+              exit 1
+            fi
+
+            echo "=== AUDIT CURRENT HOST STATE BEFORE CUTOVER ==="
+            sudo ss -tulpn | grep 3000 || true
+            docker ps -a || true
+
+            # Gracefully stop PM2 and release port 3000 completely
+            echo "Stopping PM2 and releasing port 3000..."
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 stop all 2>/dev/null || true
+            fi
+            sudo pm2 stop all 2>/dev/null || true
+            sudo systemctl stop pm2-root 2>/dev/null || true
+            sudo systemctl stop pm2-ubuntu 2>/dev/null || true
+            sudo fuser -k 3000/tcp 2>/dev/null || true
+
+            # Force stop and remove ANY old container on port 3000 or named pertamina_handover_backend
+            echo "Force stopping previous backend container..."
+            docker stop pertamina_handover_backend 2>/dev/null || true
+            docker rm -f pertamina_handover_backend 2>/dev/null || true
+            docker compose -f docker-compose.yml stop backend 2>/dev/null || true
+
+            echo "🚀 [2/5] Pulling latest backend container image from GHCR..."
+            docker pull ghcr.io/${{ github.repository }}/backend:latest
+
+            echo "=== VERIFYING PULLED CONTAINER OS & ENGINES ==="
+            docker run --rm ghcr.io/${{ github.repository }}/backend:latest cat /etc/os-release
+            docker run --rm ghcr.io/${{ github.repository }}/backend:latest ls -la /app/node_modules/.prisma/client/
+
+            echo "🚀 [3/5] Applying pending Prisma database migrations safely..."
+            docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml run --rm backend npx prisma migrate deploy || true
+
+            echo "🚀 [4/5] Launching fresh backend container..."
+            docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml up -d --force-recreate --no-deps backend
+
+            echo "🚀 [5/5] Performing Health Check & API Verification..."
+            HEALTH_SUCCESS=0
+            for i in {1..15}; do
+              STATUS=$(curl -s -o /tmp/health_test.json -w "%{http_code}" http://127.0.0.1:3000/health || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                HEALTH_SUCCESS=1
+                break
+              fi
+              echo "Waiting for health check (attempt $i/15, status $STATUS)..."
+              sleep 2
+            done
+
+            if [ $HEALTH_SUCCESS -eq 1 ]; then
+              echo "✅ Local port 3000 health check passed (HTTP 200)!"
+              cat /tmp/health_test.json
+              echo ""
+
+              echo "=== Verifying /api/auth/login directly on container ==="
+              LOGIN_STATUS=$(curl -s -o /tmp/login_test.json -w "%{http_code}" -X POST http://127.0.0.1:3000/api/auth/login \
+                -H "Content-Type: application/json" \
+                -d '{"username":"yoan","password":"invalid_test_password"}')
+              echo "Login endpoint verification status: $LOGIN_STATUS"
+              cat /tmp/login_test.json
+              echo ""
+
+              echo "=== Verifying Public HTTPS Domain via Nginx ==="
+              PUBLIC_STATUS=$(curl -s -k -o /tmp/public_health.json -w "%{http_code}" https://pertamina-handover.com/health || echo "000")
+              echo "Public HTTPS health status: $PUBLIC_STATUS"
+              if [ "$PUBLIC_STATUS" != "200" ]; then
+                echo "Nginx returned $PUBLIC_STATUS, reloading Nginx service..."
+                sudo nginx -t && sudo systemctl reload nginx
+                sleep 2
+                curl -s -k -i https://pertamina-handover.com/health || true
+              fi
+            else
+              echo "❌ Health check failed! Showing container logs..."
+              docker logs --tail 100 pertamina_handover_backend || true
+              exit 1
+            fi
+          EOF

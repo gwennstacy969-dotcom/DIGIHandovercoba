@@ -1,10 +1,89 @@
+# ==============================================================
+# Root .gitignore for Pertamina HandoverApp
+# Security Hardening & Zero-Leak Rules
+# ==============================================================
+
+# Dependencies
 node_modules/
+package-lock.json.bak
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment & Sensitive Configuration Files (CRITICAL)
+.env
+.env.*
+.env.local
+.env.*.local
+.env.backup
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.*
+deploy/docker/.env
+deploy/docker/.env.*
+
+# Allow only explicit example templates
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+!deploy/docker/.env.production.example
+
+# SSH & SSL Keys, Certificates, and Tokens
+*.pem
+*.key
+*.crt
+*.cert
+*.jks
+*.keystore
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
+# Database Dumps, Backups, and Archives
+*.sql.gz
+*.tar.gz
+*.bak
+*.dump
+*.backup
+backup_*/
+backups/
+
+# Storage & Uploads (Prevent production evidence photos from git)
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/logs/*
+!backend/logs/.gitkeep
+uploads/
+logs/
+
+# Build Output & Artifacts
+dist/
+web-dist/
+build/
+release-artifacts/
+frontend/dist/
+frontend/web-build/
+frontend/.expo/
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/ios/build/
+coverage/
+
+# IDE, OS & Temporary Files
 .vscode/
+.idea/
+.DS_Store
+Thumbs.db
 *.rar
 *.zip
 *.pptx
 tampilan aplikasi DIGIHandover/
-frontend/.expo/
-frontend/dist/
-frontend/web-build/
 .claude/
+.cursor/
+.agents/
+.devin/
+scratch/
+reportController_backup.js
+scratch_extract_logo.ps1
