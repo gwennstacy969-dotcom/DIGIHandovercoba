@@ -180,10 +180,24 @@ export default function HistoryScreen({ route, navigation }) {
     loadUserAndHistory();
   }, []);
 
-  const fetchHistory = async (userData, pageNum = 1) => {
+  const fetchHistory = async (userData, pageNum = 1, customFilters = null) => {
     try {
       if (pageNum === 1) setLoading(true);
-      const res = await axios.get(`${API_URL}/api/handovers?page=${pageNum}&limit=20`);
+      const activeStatus = customFilters && customFilters.status !== undefined ? customFilters.status : selectedStatus;
+      const activeMonth = customFilters && customFilters.month !== undefined ? customFilters.month : selectedMonth;
+      const activeYear = customFilters && customFilters.year !== undefined ? customFilters.year : selectedYear;
+      const activeStart = customFilters && customFilters.startDate !== undefined ? customFilters.startDate : startDate;
+      const activeEnd = customFilters && customFilters.endDate !== undefined ? customFilters.endDate : endDate;
+      const activeSearch = customFilters && customFilters.search !== undefined ? customFilters.search : searchQuery;
+
+      let queryParams = `page=${pageNum}&limit=20`;
+      if (activeStatus && activeStatus !== 'Semua') queryParams += `&status=${encodeURIComponent(activeStatus)}`;
+      if (activeMonth && activeMonth !== 'Semua') queryParams += `&month=${encodeURIComponent(activeMonth)}`;
+      if (activeYear && activeYear !== 'Semua') queryParams += `&year=${encodeURIComponent(activeYear)}`;
+      if (activeStart && activeEnd) queryParams += `&startDate=${activeStart}&endDate=${activeEnd}`;
+      if (activeSearch && activeSearch.trim() !== '') queryParams += `&search=${encodeURIComponent(activeSearch.trim())}`;
+
+      const res = await axios.get(`${API_URL}/api/handovers?${queryParams}`);
       let data = res.data.data || res.data; // fallback jika API lama
 
       if (userData && (userData.role === 'AMT' || userData.role === 'USER')) {
@@ -467,6 +481,14 @@ export default function HistoryScreen({ route, navigation }) {
     setStartDate(tempStartDate);
     setEndDate(tempEndDate);
     setIsFilterVisible(false);
+    fetchHistory(user, 1, {
+      status: tempStatus,
+      month: tempMonth,
+      year: tempYear,
+      startDate: tempStartDate,
+      endDate: tempEndDate,
+      search: searchQuery
+    });
   };
 
   const resetTempFilters = () => {
@@ -485,31 +507,48 @@ export default function HistoryScreen({ route, navigation }) {
     setStartDate('');
     setEndDate('');
     setSearchQuery('');
+    fetchHistory(user, 1, {
+      status: 'Semua',
+      month: 'Semua',
+      year: 'Semua',
+      startDate: '',
+      endDate: '',
+      search: ''
+    });
   };
 
   const filteredHandovers = handovers.filter((item) => {
     // Abaikan sesi dummy NOT_STARTED jika ada
     if (item.status === 'NOT_STARTED') return false;
 
-    // Search bar (untuk cari Nopol, Nama AMT, Tanggal)
+    // Search bar (untuk cari Nopol, Nama AMT, Tanggal, No Handover)
     let matchesSearch = true;
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
       const dateStr = new Date(item.timestamp).toLocaleString('id-ID');
       matchesSearch =
-        item.noPolisi.toLowerCase().includes(q) ||
-        (item.user && item.user.name.toLowerCase().includes(q)) ||
+        (item.noPolisi && item.noPolisi.toLowerCase().includes(q)) ||
+        (item.handoverNo && item.handoverNo.toLowerCase().includes(q)) ||
+        (item.user && item.user.name && item.user.name.toLowerCase().includes(q)) ||
         (item.amt1 && item.amt1.toLowerCase().includes(q)) ||
         (item.amt2 && item.amt2.toLowerCase().includes(q)) ||
         dateStr.toLowerCase().includes(q);
     }
 
-    const isNormal = item.status === 'Siap Operasi (Normal)';
-    const isResolved = item.issue && item.issue.status === 'RESOLVED';
+    const hasBadItems = item.items && item.items.some(i => !i.isGood);
+    const hasIssueRecord = Boolean(item.issue);
+    const isVehicleMaintenance = item.status !== 'Siap Operasi (Normal)';
+    const hasAnyIssue = hasBadItems || hasIssueRecord || isVehicleMaintenance;
+
+    const isResolved = hasAnyIssue && (
+      (item.issue && item.issue.status === 'RESOLVED') ||
+      (hasBadItems && item.items.filter(i => !i.isGood).every(i => i.isRepaired))
+    );
+    const isNormal = !hasAnyIssue;
 
     let matchesStatus = true;
     if (selectedStatus === 'Normal') matchesStatus = isNormal;
-    if (selectedStatus === 'Isu') matchesStatus = !isNormal && !isResolved;
+    if (selectedStatus === 'Isu') matchesStatus = hasAnyIssue;
     if (selectedStatus === 'Selesai') matchesStatus = isResolved;
 
     let matchesMonth = true;
@@ -534,8 +573,16 @@ export default function HistoryScreen({ route, navigation }) {
   });
 
   const renderItem = ({ item }) => {
-    const isNormal = item.status === 'Siap Operasi (Normal)';
-    const isResolved = item.issue && item.issue.status === 'RESOLVED';
+    const hasBadItems = item.items && item.items.some(i => !i.isGood);
+    const hasIssueRecord = Boolean(item.issue);
+    const isVehicleMaintenance = item.status !== 'Siap Operasi (Normal)';
+    const hasAnyIssue = hasBadItems || hasIssueRecord || isVehicleMaintenance;
+
+    const isResolved = hasAnyIssue && (
+      (item.issue && item.issue.status === 'RESOLVED') ||
+      (hasBadItems && item.items.filter(i => !i.isGood).every(i => i.isRepaired))
+    );
+    const isNormal = !hasAnyIssue;
 
     return (
       <TouchableOpacity
@@ -579,16 +626,35 @@ export default function HistoryScreen({ route, navigation }) {
 
         <Text style={tw`text-xs text-gray-400 mb-2`}>Tanggal: {new Date(item.timestamp).toLocaleString()}</Text>
 
-        {!isNormal && (
-          <View style={tw`mt-2 bg-red-50 p-3 rounded-xl border border-red-100`}>
-            <Text style={tw`text-red-800 font-bold mb-1 text-sm`}>Detail Kendala:</Text>
-            {item.items.filter(i => !i.isGood).map((issue, idx) => {
-              const showSeverity = user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'PENGAWAS');
-              const displayName = showSeverity ? issue.name : issue.name.replace(/\s*\[MAJOR\]|\s*\[MINOR\]/gi, '').trim();
-              return (
-                <Text key={idx} style={tw`text-red-600 text-xs my-1`}>• {displayName}</Text>
-              );
-            })}
+        {hasAnyIssue && (
+          <View style={tw`mt-2 ${isResolved ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-100'} p-3 rounded-xl border`}>
+            <View style={tw`flex-row justify-between items-center mb-1`}>
+              <Text style={tw`${isResolved ? 'text-blue-800' : 'text-red-800'} font-bold text-sm`}>
+                Detail Kendala:
+              </Text>
+              {isResolved ? (
+                <View style={tw`flex-row items-center bg-blue-100 px-2 py-0.5 rounded-full`}>
+                  <Ionicons name="checkmark-done" size={12} color="#0055A5" style={tw`mr-1`} />
+                  <Text style={tw`text-[10px] font-bold text-[#0055A5]`}>Sudah Diperbaiki</Text>
+                </View>
+              ) : (
+                <View style={tw`flex-row items-center bg-red-100 px-2 py-0.5 rounded-full`}>
+                  <Ionicons name="alert-circle" size={12} color="#ED1C24" style={tw`mr-1`} />
+                  <Text style={tw`text-[10px] font-bold text-[#ED1C24]`}>Perlu Perbaikan</Text>
+                </View>
+              )}
+            </View>
+            {item.items && item.items.filter(i => !i.isGood).length > 0 ? (
+              item.items.filter(i => !i.isGood).map((issue, idx) => {
+                const showSeverity = user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'PENGAWAS');
+                const displayName = showSeverity ? issue.name : issue.name.replace(/\s*\[MAJOR\]|\s*\[MINOR\]/gi, '').trim();
+                return (
+                  <Text key={idx} style={tw`${isResolved ? 'text-blue-700' : 'text-red-600'} text-xs my-0.5`}>• {displayName}</Text>
+                );
+              })
+            ) : (
+              <Text style={tw`${isResolved ? 'text-blue-700' : 'text-red-600'} text-xs my-0.5`}>• {item.status}</Text>
+            )}
           </View>
         )}
 

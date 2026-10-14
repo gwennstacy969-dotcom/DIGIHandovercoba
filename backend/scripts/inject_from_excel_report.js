@@ -53,22 +53,9 @@ async function inject() {
   // 2. Persiapan Data Master (User & Kendaraan & Checklist)
   console.log('[2/6] Memuat dan menyelaraskan Master Data...');
 
-  // Pastikan kendaraan B9805SFU terdaftar jika belum ada
-  const existingSpec = await prisma.vehicle.findUnique({ where: { noPolisi: 'B9805SFU' } });
-  if (!existingSpec) {
-    await prisma.vehicle.create({
-      data: {
-        id: createId(),
-        noPolisi: 'B9805SFU',
-        barcode: 'BC_B9805SFU',
-        jenisKendaraan: 'Mobil Tangki Pertamina',
-        kapasitas: 24,
-        brand: 'Hino Ranger FL',
-        status: 'Active'
-      }
-    });
-    console.log('  ✓ Kendaraan B9805SFU berhasil ditambahkan ke master armada.');
-  }
+  // Armada kendaraan strictly 83 unit sesuai master dokumen Pertamina
+  // Jika terdapat referensi B9805SFU dari simulasi lama, diselaraskan ke unit resmi B9810TEI
+
 
   const allUsers = await prisma.user.findMany({
     where: { deletedAt: null },
@@ -206,7 +193,7 @@ async function inject() {
     handoversPayload.push({
       id: handoverId,
       handoverNo: raw.handoverNo,
-      noPolisi: raw.noPolisi,
+      noPolisi: raw.noPolisi === 'B9805SFU' ? 'B9810TEI' : raw.noPolisi,
       shift: raw.shift || '07:00',
       status: statusOperasional,
       type: raw.type || 'mulai',

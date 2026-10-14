@@ -49,7 +49,29 @@ router.get('/poster/:barcode', async (req, res) => {
 router.get('/scan/:barcode', authenticateToken, async (req, res) => {
   try {
     const userId = req.user?.id || req.query.userId;
-    const vehicle = await prisma.vehicle.findUnique({ where: { barcode: req.params.barcode } });
+    const rawCode = decodeURIComponent(req.params.barcode || '').trim();
+    const rawWithoutPrefix = rawCode.replace(/^BC_/i, '').trim();
+    const rawWithPrefix = rawCode.startsWith('BC_') ? rawCode : `BC_${rawCode}`;
+    const cleanCode = rawCode.replace(/\s+/g, '').toUpperCase();
+    const withPrefix = cleanCode.startsWith('BC_') ? cleanCode : `BC_${cleanCode}`;
+    const withoutPrefix = cleanCode.replace(/^BC_/i, '');
+
+    const vehicle = await prisma.vehicle.findFirst({
+      where: {
+        OR: [
+          { barcode: rawCode },
+          { barcode: rawWithPrefix },
+          { barcode: rawWithoutPrefix },
+          { barcode: cleanCode },
+          { barcode: withPrefix },
+          { barcode: withoutPrefix },
+          { noPolisi: rawCode },
+          { noPolisi: rawWithoutPrefix },
+          { noPolisi: cleanCode },
+          { noPolisi: withoutPrefix }
+        ]
+      }
+    });
     if (!vehicle) return res.status(404).json({ error: 'Kendaraan tidak ditemukan' });
 
     // Cari riwayat terakhir kendaraan

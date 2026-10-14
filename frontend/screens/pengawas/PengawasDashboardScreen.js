@@ -105,9 +105,13 @@ export default function PengawasDashboardScreen({ navigation }) {
     try {
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) {
-        const userData = JSON.parse(userStr);
+        let userData = JSON.parse(userStr);
+        if (userData.role === 'SUPER_ADMIN' || (userData.role && userData.role.toUpperCase() === 'SUPER_ADMIN')) {
+          userData.role = 'ADMIN';
+          await AsyncStorage.setItem('user', JSON.stringify(userData));
+        }
         setUser(userData);
-        if (userData.role === 'SUPER_ADMIN' || userData.role === 'PENGAWAS' || userData.role === 'ADMIN') {
+        if (userData.role === 'ADMIN' || userData.role === 'PENGAWAS') {
           fetchAlerts();
           fetchNotifications();
         }
@@ -254,13 +258,30 @@ export default function PengawasDashboardScreen({ navigation }) {
   };
 
   const getInitials = () => {
-    if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') return 'A\u200BD';
-    if (user.role === 'PENGAWAS') return 'P\u200BS';
-    const parts = user.name.trim().split(' ');
+    if (!user) return 'P\u200BS';
+    const roleUpper = (user.role || '').toUpperCase().replace(/[\s_]/g, '');
+    const nameUpper = (user.name || '').toUpperCase();
+    const usernameUpper = (user.username || '').toUpperCase();
+
+    if (
+      roleUpper === 'ADMIN' ||
+      roleUpper === 'SUPERADMIN' ||
+      roleUpper.includes('ADMIN') ||
+      nameUpper.includes('ADMIN') ||
+      usernameUpper.includes('ADMIN')
+    ) {
+      return 'A\u200BD';
+    }
+
+    if (roleUpper === 'PENGAWAS' || roleUpper.includes('PENGAWAS') || nameUpper.includes('PENGAWAS')) {
+      return 'P\u200BS';
+    }
+
+    const parts = (user.name || '').trim().split(' ');
     if (parts.length > 1) {
       return (parts[0][0] + '\u200B' + parts[1][0]).toUpperCase();
     }
-    return user.name.substring(0, 2).toUpperCase();
+    return (user.name || 'P\u200BS').substring(0, 2).toUpperCase();
   };
 
   const orb1TranslateY = floatAnim1.interpolate({ inputRange: [0, 1], outputRange: [0, -50] });

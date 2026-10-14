@@ -1,0 +1,8 @@
+{"level":"info","message":"Backend server running on port 3000 (0.0.0.0)","timestamp":"2026-10-14 11:48:02"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [14/Oct/2026:04:48:03 +0000] \"GET /api/handovers?status=Isu HTTP/1.1\" 200 50136 \"-\" \"-\"","timestamp":"2026-10-14 11:48:03"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [14/Oct/2026:04:48:03 +0000] \"GET /api/handovers?status=Selesai HTTP/1.1\" 200 43294 \"-\" \"-\"","timestamp":"2026-10-14 11:48:03"}
+{"level":"warn","message":"Redis connection failed, gracefully degrading cache features.","timestamp":"2026-10-14 11:48:03"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [14/Oct/2026:04:48:04 +0000] \"GET /api/handovers?status=Normal HTTP/1.1\" 200 134381 \"-\" \"-\"","timestamp":"2026-10-14 11:48:04"}
+{"level":"info","message":"Backend server running on port 3000 (0.0.0.0)","timestamp":"2026-10-14 11:48:18"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [14/Oct/2026:04:48:18 +0000] \"GET /api/reports/excel?status=Isu HTTP/1.1\" 200 - \"-\" \"-\"","timestamp":"2026-10-14 11:48:18"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [14/Oct/2026:04:48:19 +0000] \"GET /api/reports/pdf?status=Isu HTTP/1.1\" 200 - \"-\" \"-\"","timestamp":"2026-10-14 11:48:19"}

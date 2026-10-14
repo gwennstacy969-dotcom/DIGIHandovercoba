@@ -1,26 +1,23 @@
-import WebSidebar from '../../components/WebSidebar';
-import WebNavbar from '../../components/WebNavbar';
-import Toast from 'react-native-toast-message';
 import React, { useState, useEffect } from 'react';
-import ConfirmModal from '../../components/ConfirmModal';
-import { API_URL } from '../../config';
-import TextLogo from '../../components/TextLogo';
-import { View, Text, FlatList, TouchableOpacity, TextInput, Platform, Modal, Animated, Image, Easing, Alert, ScrollView, KeyboardAvoidingView } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TextInput, Platform, Modal, Animated, Image, Easing, Alert, ScrollView, KeyboardAvoidingView, Dimensions } from 'react-native';
 import tw from 'twrnc';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
-
-const API_BASE = { toString: () => `${API_URL}/api` }; // Sesuaikan IP backend
-
-const { Dimensions } = require('react-native');
+import Toast from 'react-native-toast-message';
+import WebSidebar from '../../components/WebSidebar';
+import WebNavbar from '../../components/WebNavbar';
+import ConfirmModal from '../../components/ConfirmModal';
+import TextLogo from '../../components/TextLogo';
+import { API_URL } from '../../config';
 import { useRoleGuard } from '../../hooks/useRoleGuard';
 import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
 import { handleLogoutAndReset } from '../../utils/authHelper';
+
+const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
+const API_BASE = { toString: () => `${API_URL}/api` }; // Sesuaikan IP backend
 
 export default function PengawasListScreen({ navigation }) {
   useRoleGuard(['SUPER_ADMIN', 'ADMIN']);

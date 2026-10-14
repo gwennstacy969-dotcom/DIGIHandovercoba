@@ -155,13 +155,30 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
 
   // Zero-width space (\u200B) diselipkan agar Google Translate TIDAK menerjemahkan 'AD' menjadi 'IKLAN'
   const getInitials = () => {
-    if (isAdmin) return 'A\u200BD';
-    if (isPengawas) return 'P\u200BS';
-    const parts = (user.name || '').trim().split(' ');
+    const roleUpper = (user?.role || '').toUpperCase().replace(/[\s_]/g, '');
+    const nameUpper = (user?.name || '').toUpperCase();
+    const usernameUpper = (user?.username || '').toUpperCase();
+
+    if (
+      isAdmin ||
+      roleUpper === 'ADMIN' ||
+      roleUpper === 'SUPERADMIN' ||
+      roleUpper.includes('ADMIN') ||
+      nameUpper.includes('ADMIN') ||
+      usernameUpper.includes('ADMIN')
+    ) {
+      return 'A\u200BD';
+    }
+
+    if (isPengawas || roleUpper === 'PENGAWAS' || roleUpper.includes('PENGAWAS') || nameUpper.includes('PENGAWAS')) {
+      return 'P\u200BS';
+    }
+
+    const parts = (user?.name || '').trim().split(' ');
     if (parts.length > 1) {
       return (parts[0][0] + '\u200B' + parts[1][0]).toUpperCase();
     }
-    return (user.name || 'U').substring(0, 2).toUpperCase();
+    return (user?.name || 'AD').substring(0, 2).toUpperCase();
   };
 
   const renderSectionHeader = (title) => (

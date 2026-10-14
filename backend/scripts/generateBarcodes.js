@@ -6,7 +6,7 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function syncBarcodes() {
-  const barcodesDir = path.join(__dirname, 'barcodes');
+  const barcodesDir = path.join(__dirname, '..', 'barcodes');
   
   if (!fs.existsSync(barcodesDir)) {
     fs.mkdirSync(barcodesDir, { recursive: true });
@@ -14,17 +14,23 @@ async function syncBarcodes() {
 
   // 1. Ambil seluruh data kendaraan dari database
   const vehicles = await prisma.vehicle.findMany();
-  console.log(`Ditemukan ${vehicles.length} kendaraan di database:`);
-  vehicles.forEach(v => console.log(` - Plat: ${v.noPolisi}, Barcode: ${v.barcode}`));
-
-  // Kumpulan nama file yang valid (format: <barcode>.png)
-  const validFiles = new Set(vehicles.map(v => `${v.barcode}.png`));
-
-  // 2. Buat QR code .png untuk setiap kendaraan yang ada di database
+  // Kumpulan nama file yang valid
+  const validFiles = new Set();
   for (const vehicle of vehicles) {
-    const qrData = vehicle.barcode;
-    const filePath = path.join(barcodesDir, `${qrData}.png`);
-    
+    const rawPlate = vehicle.noPolisi.replace(/\s+/g, '');
+    const targets = [vehicle.barcode, rawPlate];
+    if (vehicle.barcode && vehicle.barcode.startsWith('BC_')) {
+      targets.push(vehicle.barcode.replace(/^BC_/, ''));
+    }
+    targets.forEach(t => {
+      if (t) validFiles.add(`${t}.png`);
+    });
+  }
+
+  // 2. Buat QR code .png untuk setiap target
+  for (const filename of validFiles) {
+    const qrData = filename.replace(/\.png$/, '');
+    const filePath = path.join(barcodesDir, filename);
     try {
       await QRCode.toFile(filePath, qrData, {
         errorCorrectionLevel: 'H',
@@ -32,9 +38,9 @@ async function syncBarcodes() {
         margin: 4,
         color: { dark: '#000000', light: '#FFFFFF' }
       });
-      console.log(`✅ Barcode siap: ${qrData}.png (Plat: ${vehicle.noPolisi})`);
+      console.log(`✅ Barcode siap: ${filename}`);
     } catch (err) {
-      console.error(`❌ Gagal membuat QR code untuk ${qrData}:`, err);
+      console.error(`❌ Gagal membuat QR code untuk ${filename}:`, err);
     }
   }
 

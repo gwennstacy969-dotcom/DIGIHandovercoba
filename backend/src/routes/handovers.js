@@ -429,31 +429,103 @@ router.get('/', authenticateToken, async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const { status, shift, search } = req.query;
+    const { status, shift, search, month, year, startDate, endDate } = req.query;
     const userRole = req.user.role;
     const isWorker = userRole === 'AMT' || userRole === 'USER';
 
     // Build Prisma query filter
     const where = {};
+    const andConditions = [];
+
     if (isWorker) {
       where.userId = req.user.id;
     }
+
     if (status && status !== 'Semua') {
-      where.status = status;
+      if (status === 'Normal') {
+        andConditions.push({
+          status: 'Siap Operasi (Normal)',
+          issue: null,
+          items: { none: { isGood: false } }
+        });
+      } else if (status === 'Isu') {
+        andConditions.push({
+          OR: [
+            { status: { not: 'Siap Operasi (Normal)' } },
+            { issue: { isNot: null } },
+            { items: { some: { isGood: false } } }
+          ]
+        });
+      } else if (status === 'Selesai') {
+        andConditions.push({
+          OR: [
+            { issue: { status: 'RESOLVED' } },
+            { items: { some: { isGood: false, isRepaired: true } } }
+          ]
+        });
+      } else {
+        andConditions.push({ status });
+      }
     }
+
     if (shift && shift !== 'Semua') {
-      where.shift = shift;
+      andConditions.push({ shift });
     }
+
     if (search && search.trim() !== '') {
-      where.OR = [
-        { noPolisi: { contains: search.trim() } },
-        { amt1: { contains: search.trim() } },
-        { amt2: { contains: search.trim() } }
-      ];
+      const q = search.trim();
+      andConditions.push({
+        OR: [
+          { noPolisi: { contains: q } },
+          { amt1: { contains: q } },
+          { amt2: { contains: q } },
+          { handoverNo: { contains: q } }
+        ]
+      });
+    }
+
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      andConditions.push({ timestamp: { gte: start, lte: end } });
+    } else if (year && year !== 'Semua') {
+      const yearInt = parseInt(year);
+      const monthList = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+      if (month && month !== 'Semua') {
+        const monthIndex = monthList.indexOf(month);
+        if (monthIndex !== -1) {
+          const startMonth = new Date(yearInt, monthIndex, 1);
+          const endMonth = new Date(yearInt, monthIndex + 1, 0, 23, 59, 59, 999);
+          andConditions.push({ timestamp: { gte: startMonth, lte: endMonth } });
+        }
+      } else {
+        const startYear = new Date(yearInt, 0, 1);
+        const endYear = new Date(yearInt, 11, 31, 23, 59, 59, 999);
+        andConditions.push({ timestamp: { gte: startYear, lte: endYear } });
+      }
+    } else if (month && month !== 'Semua') {
+      const monthList = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+      const monthIndex = monthList.indexOf(month);
+      if (monthIndex !== -1) {
+        const currentYear = new Date().getFullYear();
+        const monthOrs = [];
+        for (let y = 2020; y <= currentYear + 5; y++) {
+          const startMonth = new Date(y, monthIndex, 1);
+          const endMonth = new Date(y, monthIndex + 1, 0, 23, 59, 59, 999);
+          monthOrs.push({ timestamp: { gte: startMonth, lte: endMonth } });
+        }
+        andConditions.push({ OR: monthOrs });
+      }
+    }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
     }
 
     // B2: Cache key mencakup role, user id (jika worker), halaman, limit, dan parameter filter
-    const cacheKey = `handovers:r:${userRole}:u:${isWorker ? req.user.id : 'all'}:p:${page}:l:${limit}:st:${status || 'all'}:sh:${shift || 'all'}:q:${search || 'all'}`;
+    const cacheKey = `handovers:r:${userRole}:u:${isWorker ? req.user.id : 'all'}:p:${page}:l:${limit}:st:${status || 'all'}:sh:${shift || 'all'}:q:${search || 'all'}:sd:${startDate || 'all'}:ed:${endDate || 'all'}:m:${month || 'all'}:y:${year || 'all'}`;
     const cachedData = await CacheService.get(cacheKey);
 
     if (cachedData) {

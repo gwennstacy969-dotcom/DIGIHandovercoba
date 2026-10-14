@@ -162,7 +162,7 @@ model Vehicle {
 model Notification {
   id          String    @id @default(cuid())
   title       String
-  message     String
+  message     String    @db.Text
   isRead      Boolean   @default(false)
   type        String    @default("INFO")
   targetRole  String?   @default("ADMIN")

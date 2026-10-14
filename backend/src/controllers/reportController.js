@@ -115,11 +115,28 @@ const exportExcel = async (req, res) => {
 
     if (status && status !== 'Semua') {
       if (status === 'Normal') {
-        where.status = 'Siap Operasi (Normal)';
+        where.AND.push({
+          status: 'Siap Operasi (Normal)',
+          issue: null,
+          items: { none: { isGood: false } }
+        });
       } else if (status === 'Isu') {
-        where.status = { not: 'Siap Operasi (Normal)' };
+        where.AND.push({
+          OR: [
+            { status: { not: 'Siap Operasi (Normal)' } },
+            { issue: { isNot: null } },
+            { items: { some: { isGood: false } } }
+          ]
+        });
+      } else if (status === 'Selesai') {
+        where.AND.push({
+          OR: [
+            { issue: { status: 'RESOLVED' } },
+            { items: { some: { isGood: false, isRepaired: true } } }
+          ]
+        });
       } else {
-        where.status = status;
+        where.AND.push({ status });
       }
     }
     
@@ -770,11 +787,28 @@ const exportPdf = async (req, res) => {
 
     if (status && status !== 'Semua') {
       if (status === 'Normal') {
-        where.status = 'Siap Operasi (Normal)';
+        where.AND.push({
+          status: 'Siap Operasi (Normal)',
+          issue: null,
+          items: { none: { isGood: false } }
+        });
       } else if (status === 'Isu') {
-        where.status = { not: 'Siap Operasi (Normal)' };
+        where.AND.push({
+          OR: [
+            { status: { not: 'Siap Operasi (Normal)' } },
+            { issue: { isNot: null } },
+            { items: { some: { isGood: false } } }
+          ]
+        });
+      } else if (status === 'Selesai') {
+        where.AND.push({
+          OR: [
+            { issue: { status: 'RESOLVED' } },
+            { items: { some: { isGood: false, isRepaired: true } } }
+          ]
+        });
       } else {
-        where.status = status;
+        where.AND.push({ status });
       }
     }
     

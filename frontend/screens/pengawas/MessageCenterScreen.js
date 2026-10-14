@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Platform, Animated, Easing, Dimensions, Image, Modal, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Platform, Animated, Easing, Dimensions, Image, Modal, ActivityIndicator, ScrollView, TextInput } from 'react-native';
 import tw from 'twrnc';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,15 +10,17 @@ import { API_URL } from '../../config';
 import WebSidebar from '../../components/WebSidebar';
 import WebNavbar from '../../components/WebNavbar';
 
-const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
-
 import { useRoleGuard } from '../../hooks/useRoleGuard';
 import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
 import { handleLogoutAndReset } from '../../utils/authHelper';
 
+const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
+
 export default function MessageCenterScreen({ navigation }) {
   useRoleGuard(['SUPER_ADMIN', 'ADMIN', 'PENGAWAS', 'AMT']);
   const [messages, setMessages] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState('ALL');
   const unreadNotificationsCount = 0;
   const [loading, setLoading] = useState(true);
   const [screenWidth, setScreenWidth] = useState(Dimensions.get('window').width);
@@ -81,21 +83,36 @@ export default function MessageCenterScreen({ navigation }) {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem('token');
-      const res = await axios.get(`${API_URL}/api/notifications`, {
+      const res = await axios.get(`${API_URL}/api/notifications?limit=250`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data.success) {
-        setMessages(res.data.notifications.map(n => ({
-          id: n.id,
-          title: n.title,
-          message: n.message,
-          type: n.type ? n.type.toLowerCase() : 'info',
-          read: n.isRead,
-          time: new Date(n.createdAt).toLocaleString('id-ID'),
-          actionType: n.actionType || null,
-          actionId: n.actionId || null,
-          noPolisi: n.noPolisi || null,
-        })));
+        setMessages(res.data.notifications.map(n => {
+          const isAmtFinding = (
+            n.actionType === 'VIEW_AMT_ISSUE' ||
+            n.title?.toLowerCase().includes('kepatuhan amt') ||
+            n.title?.toLowerCase().includes('perlengkapan kerja') ||
+            n.message?.toLowerCase().includes('perlengkapan belum lengkap') ||
+            n.message?.toLowerCase().includes('temuan perlengkapan')
+          );
+          return {
+            id: n.id,
+            title: n.title,
+            message: n.message,
+            type: n.type ? n.type.toLowerCase() : 'info',
+            read: n.isRead,
+            time: new Date(n.createdAt).toLocaleString('id-ID', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+            actionType: n.actionType || (isAmtFinding ? 'VIEW_AMT_ISSUE' : null),
+            actionId: n.actionId || null,
+            noPolisi: n.noPolisi || null,
+          };
+        }));
       }
     } catch (error) {
       console.log("Error fetching notifications:", error.message);
@@ -146,11 +163,18 @@ export default function MessageCenterScreen({ navigation }) {
 
     switch (item.actionType) {
       case 'VIEW_AMT_ISSUE':
-        // Arahkan ke daftar temuan kepatuhan AMT
-        navigation.navigate('IssueList');
+        // Arahkan langsung ke tab Kepatuhan AMT (B) pada halaman Isu Ditemukan
+        navigation.navigate('IssueList', {
+          category: 'AMT',
+          initialCategory: 'AMT',
+          amtFilter: (item.type === 'success' || item.type === 'SUCCESS') ? 'ALL' : 'OPEN',
+          actionId: item.actionId,
+          noPolisi: item.noPolisi,
+          timestamp: Date.now()
+        });
         break;
       case 'VIEW_ISSUE':
-        // Admin/Pengawas → buka IssueDetail jika ada actionId atau noPolisi, atau IssueList
+        // Admin/Pengawas → buka IssueDetail jika ada actionId atau noPolisi, atau IssueList (Isu Kendaraan)
         if (item.actionId || item.noPolisi) {
           navigation.navigate('IssueDetail', { 
             issueId: item.actionId,
@@ -159,7 +183,11 @@ export default function MessageCenterScreen({ navigation }) {
             noPolisi: item.noPolisi
           });
         } else {
-          navigation.navigate('IssueList');
+          navigation.navigate('IssueList', {
+            category: 'VEHICLE',
+            initialCategory: 'VEHICLE',
+            timestamp: Date.now()
+          });
         }
         break;
       case 'VIEW_HANDOVER':
@@ -246,38 +274,78 @@ export default function MessageCenterScreen({ navigation }) {
     };
     const isUnread = !item.read;
     const style = getNotifStyle(item.type);
+    const actionLabel = item.actionType ? getActionLabel(item.actionType) : null;
+    const actionColors = item.actionType ? getActionColor(item.actionType) : ['#0055A5', '#1E3A5F'];
 
     return (
       <TouchableOpacity 
-        style={tw`bg-white p-5 rounded-2xl mb-4 shadow-sm border ${isUnread ? 'border-blue-200' : 'border-gray-100'} flex-row items-start`}
+        style={[
+          tw`p-4.5 rounded-2xl mb-3.5 border`,
+          isUnread 
+            ? { backgroundColor: '#F0F7FF', borderColor: '#BFDBFE' } 
+            : { backgroundColor: '#FFFFFF', borderColor: '#F3F4F6' },
+          Platform.OS === 'web' ? { boxShadow: '0 1px 3px rgba(0,0,0,0.04)' } : { elevation: 1 }
+        ]}
         onPress={handlePress}
+        activeOpacity={0.88}
       >
-        <View style={tw`w-12 h-12 rounded-full items-center justify-center mr-4 mt-1 ${style.bg}`}>
-          <Ionicons name={style.icon} size={24} color={style.color} />
-        </View>
-        <View style={tw`flex-1`}>
-          <View style={tw`flex-row justify-between items-center mb-1`}>
-            <Text style={tw`text-base font-black ${isUnread ? 'text-gray-900' : 'text-gray-600'} flex-1 mr-2`} numberOfLines={1}>{item.title}</Text>
-            {isUnread && <View style={tw`w-2.5 h-2.5 bg-blue-500 rounded-full ml-2`} />}
+        {/* Header: Icon + Title + Unread Indicator + Meta Info */}
+        <View style={tw`flex-row items-start mb-2`}>
+          <View style={tw`w-10 h-10 rounded-2xl items-center justify-center mr-3 mt-0.5 ${style.bg}`}>
+            <Ionicons name={style.icon} size={20} color={style.color} />
           </View>
-          <Text style={tw`text-sm font-medium ${isUnread ? 'text-gray-700' : 'text-gray-400'} leading-5 mb-2`} numberOfLines={2}>{item.message}</Text>
-          <View style={tw`flex-row justify-between items-center`}>
-            <Text style={tw`text-xs font-bold text-gray-400`}>{item.time}</Text>
-            {item.actionType && (
-              <TouchableOpacity 
-                style={tw`flex-row items-center bg-blue-50/80 px-2.5 py-1 rounded-lg border border-blue-100`}
-                onPress={(e) => {
-                  e?.stopPropagation?.();
-                  if (!item.read) markAsRead(item.id);
-                  handleNotificationAction(item);
-                }}
-              >
-                <Ionicons name={getActionIcon(item.actionType)} size={14} color={getActionColor(item.actionType)[0]} />
-                <Text style={[tw`text-xs font-bold ml-1.5`, { color: getActionColor(item.actionType)[0] }]}>{getActionLabel(item.actionType)}</Text>
-              </TouchableOpacity>
-            )}
+          <View style={tw`flex-1`}>
+            <View style={tw`flex-row justify-between items-start`}>
+              <Text style={tw`text-[15px] font-black ${isUnread ? 'text-gray-900' : 'text-gray-700'} flex-1 mr-2`} numberOfLines={1}>
+                {item.title}
+              </Text>
+              {isUnread && <View style={tw`w-2.5 h-2.5 bg-blue-500 rounded-full mt-1.5 ml-1`} />}
+            </View>
+            
+            {/* Meta Row: Timestamp & Vehicle Badge (Placed safely below title) */}
+            <View style={tw`flex-row items-center mt-1 flex-wrap`}>
+              <View style={tw`flex-row items-center mr-2.5`}>
+                <Ionicons name="time-outline" size={12} color="#9CA3AF" style={tw`mr-1`} />
+                <Text style={tw`text-[11px] font-semibold text-gray-400`}>{item.time}</Text>
+              </View>
+              {item.noPolisi && (
+                <View style={tw`bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200/60 flex-row items-center`}>
+                  <Ionicons name="car-outline" size={11} color="#6B7280" style={tw`mr-1`} />
+                  <Text style={tw`text-[10px] font-bold text-gray-600`}>{item.noPolisi}</Text>
+                </View>
+              )}
+            </View>
           </View>
         </View>
+
+        {/* Message Preview */}
+        <Text style={tw`text-[13px] font-medium ${isUnread ? 'text-gray-700' : 'text-gray-500'} leading-5 mb-1 px-0.5`} numberOfLines={2}>
+          {item.message}
+        </Text>
+
+        {/* Dedicated Action Button Footer (Cleanly separated on its own row, never overlaps) */}
+        {actionLabel && (
+          <View style={tw`mt-3 pt-2.5 border-t border-gray-100/90 flex-row justify-end items-center`}>
+            <TouchableOpacity 
+              style={[
+                tw`flex-row items-center px-3.5 py-1.5 rounded-xl border`,
+                { backgroundColor: actionColors[0] + '12', borderColor: actionColors[0] + '35' }
+              ]}
+              onPress={(e) => {
+                e?.stopPropagation?.();
+                if (!item.read) markAsRead(item.id);
+                handleNotificationAction(item);
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name={getActionIcon(item.actionType)} size={14} color={actionColors[0]} />
+              <Text style={[tw`text-xs font-black ml-1.5`, { color: actionColors[0] }]}>
+                {actionLabel}
+              </Text>
+              <Ionicons name="chevron-forward" size={13} color={actionColors[0]} style={tw`ml-1 opacity-70`} />
+            </TouchableOpacity>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
@@ -336,13 +404,81 @@ export default function MessageCenterScreen({ navigation }) {
         ) : (
           <FlatList
             contentContainerStyle={tw`p-6 pb-30 w-full max-w-4xl mx-auto`}
-            data={messages}
+            data={messages.filter(item => {
+              if (activeFilter === 'EMERGENCY' && item.type !== 'error') return false;
+              if (activeFilter === 'AMT' && item.actionType !== 'VIEW_AMT_ISSUE') return false;
+              if (activeFilter === 'SUCCESS' && item.type !== 'success') return false;
+              if (searchQuery.trim()) {
+                const q = searchQuery.toLowerCase();
+                const matchTitle = item.title?.toLowerCase().includes(q);
+                const matchMessage = item.message?.toLowerCase().includes(q);
+                const matchNopol = item.noPolisi?.toLowerCase().includes(q);
+                const matchTime = item.time?.toLowerCase().includes(q);
+                return matchTitle || matchMessage || matchNopol || matchTime;
+              }
+              return true;
+            })}
             keyExtractor={(item) => item.id}
             renderItem={renderMessage}
+            ListHeaderComponent={
+              <View style={tw`mb-4`}>
+                {/* Search Bar */}
+                <View style={[tw`flex-row items-center px-4 py-3 rounded-2xl border border-gray-200 mb-3`, { backgroundColor: '#FFFFFF' }, Platform.OS === 'web' ? { boxShadow: '0 1px 2px rgba(0,0,0,0.03)' } : { elevation: 1 }]}>
+                  <Ionicons name="search" size={20} color="#9CA3AF" style={tw`mr-2`} />
+                  <TextInput
+                    style={tw`flex-1 text-sm text-gray-800 font-medium`}
+                    placeholder="Cari pesan, nopol (misal B 9376), atau tanggal..."
+                    placeholderTextColor="#9CA3AF"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                  />
+                  {searchQuery.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Filter Pills */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={tw`flex-row pb-1`}>
+                  {[
+                    { id: 'ALL', label: 'Semua', count: messages.length },
+                    { id: 'EMERGENCY', label: '🚨 Darurat / Insiden', count: messages.filter(m => m.type === 'error').length },
+                    { id: 'AMT', label: '⚠️ Temuan AMT', count: messages.filter(m => m.actionType === 'VIEW_AMT_ISSUE').length },
+                    { id: 'SUCCESS', label: '✅ Selesai / Info', count: messages.filter(m => m.type === 'success').length },
+                  ].map(f => {
+                    const isActive = activeFilter === f.id;
+                    return (
+                      <TouchableOpacity
+                        key={f.id}
+                        onPress={() => setActiveFilter(f.id)}
+                        style={[
+                          tw`px-3.5 py-1.5 rounded-full mr-2 flex-row items-center border`,
+                          isActive ? tw`bg-[#0055A5] border-[#0055A5]` : tw`bg-white border-gray-200`
+                        ]}
+                      >
+                        <Text style={[tw`text-xs font-bold`, isActive ? tw`text-white` : tw`text-gray-600`]}>
+                          {f.label}
+                        </Text>
+                        {f.count > 0 && (
+                          <View style={[tw`ml-1.5 px-1.5 py-0.5 rounded-full`, isActive ? tw`bg-white/20` : tw`bg-gray-100`]}>
+                            <Text style={[tw`text-[10px] font-black`, isActive ? tw`text-white` : tw`text-gray-600`]}>
+                              {f.count}
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            }
             ListEmptyComponent={
               <View style={tw`items-center mt-20`}>
                 <Ionicons name="chatbubble-outline" size={60} color="#CBD5E1" />
-                <Text style={tw`text-center text-gray-400 font-bold mt-4 text-lg`}>Tidak ada pesan baru.</Text>
+                <Text style={tw`text-center text-gray-400 font-bold mt-4 text-lg`}>
+                  {searchQuery.trim() ? 'Tidak ada pesan yang cocok dengan pencarian.' : 'Tidak ada pesan baru.'}
+                </Text>
               </View>
             }
           />
@@ -351,7 +487,7 @@ export default function MessageCenterScreen({ navigation }) {
         {/* MODAL DETAIL PESAN */}
         <Modal visible={!!selectedMessage} transparent={true} animationType="fade">
           <View style={tw`flex-1 justify-center items-center bg-black/50 px-6`}>
-            <View style={tw`bg-white w-full max-w-sm rounded-[30px] p-6 shadow-2xl`}>
+            <View style={[tw`bg-white w-full max-w-sm rounded-[30px] p-6`, Platform.OS === 'web' ? { boxShadow: '0 10px 40px rgba(0,0,0,0.15)' } : { elevation: 10 }]}>
               {/* Header */}
               <View style={tw`flex-row items-center mb-4 pb-4 border-b border-gray-100`}>
                 <View style={tw`w-10 h-10 rounded-full items-center justify-center mr-3 ${getNotifStyle(selectedMessage?.type).bg}`}>
@@ -384,7 +520,7 @@ export default function MessageCenterScreen({ navigation }) {
               {/* Tombol Aksi (jika ada actionType) */}
               {selectedMessage?.actionType && getActionLabel(selectedMessage.actionType) && (
                 <TouchableOpacity
-                  style={tw`w-full mb-3 rounded-2xl overflow-hidden shadow-md`}
+                  style={[tw`w-full mb-3 rounded-2xl overflow-hidden`, Platform.OS === 'web' ? { boxShadow: '0 2px 8px rgba(0,0,0,0.1)' } : { elevation: 3 }]}
                   onPress={() => handleNotificationAction(selectedMessage)}
                 >
                   <LinearGradient
@@ -413,7 +549,7 @@ export default function MessageCenterScreen({ navigation }) {
 
       {/* BOTTOM NAVBAR */}
       {!isLargeScreen && user && (
-        <View style={tw`absolute bottom-8 self-center w-11/12 bg-white rounded-full flex-row justify-around items-center py-5 shadow-2xl shadow-gray-400/50 z-50`}>
+        <View style={[tw`absolute bottom-8 self-center w-11/12 bg-white rounded-full flex-row justify-around items-center py-5 z-50`, Platform.OS === 'web' ? { boxShadow: '0 4px 20px rgba(0,0,0,0.12)' } : { elevation: 8 }]}>
           <TouchableOpacity 
             style={tw`items-center justify-center px-4 relative`} 
             onPress={() => {

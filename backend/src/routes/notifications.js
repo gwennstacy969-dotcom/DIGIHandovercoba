@@ -19,18 +19,45 @@ router.get('/', authenticateToken, async (req, res) => {
       targetRoles = ['ADMIN', 'SUPER_ADMIN', 'ALL'];
     }
 
+    const limit = parseInt(req.query.limit) || 250;
+    const { date, noPolisi, search } = req.query;
+
+    const where = {
+      OR: [
+        { targetUserId: userId },
+        {
+          targetRole: { in: targetRoles },
+          targetUserId: null
+        }
+      ]
+    };
+
+    if (noPolisi) {
+      where.noPolisi = { contains: noPolisi.replace(/\s+/g, '') };
+    }
+
+    if (date) {
+      const start = new Date(`${date}T00:00:00.000Z`);
+      const end = new Date(`${date}T23:59:59.999Z`);
+      where.createdAt = { gte: start, lte: end };
+    }
+
+    if (search) {
+      where.AND = [
+        {
+          OR: [
+            { title: { contains: search } },
+            { message: { contains: search } },
+            { noPolisi: { contains: search.replace(/\s+/g, '') } }
+          ]
+        }
+      ];
+    }
+
     const notifications = await prisma.notification.findMany({
-      where: {
-        OR: [
-          { targetUserId: userId },
-          {
-            targetRole: { in: targetRoles },
-            targetUserId: null
-          }
-        ]
-      },
+      where,
       orderBy: { createdAt: 'desc' },
-      take: 50
+      take: limit
     });
 
     res.json({ success: true, notifications });

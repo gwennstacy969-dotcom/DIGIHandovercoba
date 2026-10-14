@@ -1,27 +1,25 @@
-import WebSidebar from '../../components/WebSidebar';
-import WebNavbar from '../../components/WebNavbar';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Toast from 'react-native-toast-message';
 import React, { useState, useEffect, useMemo } from 'react';
-import ConfirmModal from '../../components/ConfirmModal';
-import { API_URL } from '../../config';
-import TextLogo from '../../components/TextLogo';
-import { View, Text, FlatList, TouchableOpacity, TextInput, Platform, Modal, Animated, Image, Easing, Alert, ActivityIndicator, KeyboardAvoidingView, ScrollView, Linking } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TextInput, Platform, Modal, Animated, Image, Easing, Alert, ActivityIndicator, KeyboardAvoidingView, ScrollView, Linking, Dimensions } from 'react-native';
 import tw from 'twrnc';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import axios from 'axios';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-
-const API_BASE = { toString: () => `${API_URL}/api` };
-const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
-
-const { Dimensions } = require('react-native');
+import Toast from 'react-native-toast-message';
+import WebSidebar from '../../components/WebSidebar';
+import WebNavbar from '../../components/WebNavbar';
+import ConfirmModal from '../../components/ConfirmModal';
+import TextLogo from '../../components/TextLogo';
+import { API_URL } from '../../config';
 import { useRoleGuard } from '../../hooks/useRoleGuard';
 import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
 import { handleLogoutAndReset } from '../../utils/authHelper';
+
+const API_BASE = { toString: () => `${API_URL}/api` };
+const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
 
 export default function VehicleListScreen({ navigation }) {
   useRoleGuard(['SUPER_ADMIN', 'ADMIN', 'PENGAWAS']);
@@ -233,7 +231,6 @@ export default function VehicleListScreen({ navigation }) {
     ])).start();
 
     const loadUser = async () => {
-      const { default: AsyncStorage } = await import('@react-native-async-storage/async-storage');
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) setUser(JSON.parse(userStr));
     };
@@ -946,13 +943,21 @@ export default function VehicleListScreen({ navigation }) {
             />
             {selectedVehicle && (
               <View style={tw`items-center z-10 w-full max-w-sm px-6`} pointerEvents="box-none">
-                <View style={tw`w-full flex-row justify-end mb-4`}>
-                  <TouchableOpacity onPress={() => setFullScreenBarcode(false)} style={tw`p-3 bg-white/20 rounded-full`}>
-                    <Ionicons name="close" size={28} color="#FFFFFF" />
+                <View style={tw`w-full flex-row justify-between items-center mb-3`}>
+                  <View style={tw`bg-white/20 px-3 py-1 rounded-full`}>
+                    <Text style={tw`text-white font-bold text-xs uppercase tracking-wider`}>Poster Barcode Truk</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setFullScreenBarcode(false)} style={tw`p-2.5 bg-white/20 rounded-full`}>
+                    <Ionicons name="close" size={24} color="#FFFFFF" />
                   </TouchableOpacity>
                 </View>
-                <Text style={tw`text-white text-3xl font-black mb-6 text-center tracking-tight`}>{selectedVehicle.noPolisi}</Text>
-                <View style={tw`w-72 h-72 bg-white rounded-3xl p-4 shadow-2xl items-center justify-center`}>
+
+                <Text style={tw`text-white text-3xl font-black mb-1 text-center tracking-tight`}>{selectedVehicle.noPolisi}</Text>
+                <View style={tw`bg-blue-900/60 border border-blue-400/40 px-3 py-1 rounded-full mb-5`}>
+                  <Text style={tw`text-blue-200 text-xs font-mono font-bold`}>Kode: {selectedVehicle.barcode}</Text>
+                </View>
+
+                <View style={tw`w-72 h-72 bg-white rounded-3xl p-4 shadow-2xl items-center justify-center relative`}>
                   <Image
                     source={{ uri: `${API_URL}/barcodes/${selectedVehicle.barcode}.png` }}
                     style={tw`w-full h-full`}
@@ -960,12 +965,32 @@ export default function VehicleListScreen({ navigation }) {
                   />
                 </View>
 
-                <TouchableOpacity style={tw`bg-[#0055A5] mt-6 px-8 py-4 rounded-full flex-row items-center shadow-lg shadow-blue-500/50 w-full justify-center`} onPress={handleDownloadBarcode}>
+                <TouchableOpacity 
+                  style={tw`bg-[#0055A5] mt-5 px-6 py-4 rounded-2xl flex-row items-center shadow-lg shadow-blue-500/50 w-full justify-center active:scale-98`} 
+                  onPress={handleDownloadBarcode}
+                >
                   <Feather name="download" size={20} color="white" />
-                  <Text style={tw`text-white font-bold text-base ml-3 tracking-wide`}>Simpan Poster Barcode</Text>
+                  <Text style={tw`text-white font-bold text-base ml-2.5 tracking-wide`}>Unduh Poster HD Siap Cetak</Text>
                 </TouchableOpacity>
 
-                <Text style={tw`text-gray-300 text-xs mt-4 text-center px-4 leading-relaxed`}>Poster resmi Pertamina beserta QR code dan plat nomor akan diunduh dalam kualitas HD (siap cetak untuk truk).</Text>
+                <TouchableOpacity 
+                  style={tw`bg-white/15 border border-white/30 mt-2.5 px-6 py-3 rounded-2xl flex-row items-center w-full justify-center active:scale-98`} 
+                  onPress={() => {
+                    const url = `${API_BASE}/vehicles/poster/${selectedVehicle.barcode}`;
+                    if (Platform.OS === 'web') {
+                      window.open(url, '_blank');
+                    } else {
+                      Linking.openURL(url).catch(() => {});
+                    }
+                  }}
+                >
+                  <Ionicons name="open-outline" size={18} color="white" />
+                  <Text style={tw`text-white font-bold text-xs ml-2`}>Lihat Layout Poster Full HD</Text>
+                </TouchableOpacity>
+
+                <Text style={tw`text-gray-300 text-xs mt-3 text-center px-2 leading-relaxed`}>
+                  Poster resmi Pertamina mencakup QR code, logo iAMT, dan nomor polisi dalam resolusi HD 1024x1536 px.
+                </Text>
               </View>
             )}
           </View>

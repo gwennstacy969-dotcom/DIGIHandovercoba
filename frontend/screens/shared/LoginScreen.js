@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { API_URL, loadSavedApiUrl } from '../../config';
+import { API_URL, loadSavedApiUrl, saveApiUrl, resetApiUrl, getDefaultApiUrl } from '../../config';
 import { View, Text, TextInput, TouchableOpacity, Animated, KeyboardAvoidingView, Platform, ScrollView, Image, ImageBackground, Modal, Linking, Dimensions, BackHandler, ActivityIndicator, Keyboard } from 'react-native';
 import tw from 'twrnc';
 import axios from 'axios';
@@ -26,10 +26,74 @@ export default function LoginScreen({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmittingReset, setIsSubmittingReset] = useState(false);
 
+  // Server URL settings states
+  const [showServerModal, setShowServerModal] = useState(false);
+  const [serverUrlInput, setServerUrlInput] = useState('');
+  const [isTestingServer, setIsTestingServer] = useState(false);
+  const [serverTestStatus, setServerTestStatus] = useState(null);
+  const [activeServerUrl, setActiveServerUrl] = useState(API_URL);
+
   // Load API URL dari environment saat startup
   useEffect(() => {
-    loadSavedApiUrl();
+    (async () => {
+      const url = await loadSavedApiUrl();
+      const resolved = url || API_URL;
+      setActiveServerUrl(resolved);
+      setServerUrlInput(resolved);
+    })();
   }, []);
+
+  const handleOpenServerModal = async () => {
+    const url = (await loadSavedApiUrl()) || API_URL;
+    setServerUrlInput(url);
+    setServerTestStatus(null);
+    setShowServerModal(true);
+  };
+
+  const handleTestServerConnection = async () => {
+    setIsTestingServer(true);
+    setServerTestStatus(null);
+    try {
+      let target = (serverUrlInput || '').trim().replace(/\/+$/, '');
+      if (!target.startsWith('http://') && !target.startsWith('https://')) {
+        target = `http://${target}`;
+      }
+      // Panggil endpoint login atau info
+      const res = await axios.get(`${target}/api/vehicles`, { timeout: 4000 });
+      setServerTestStatus({ success: true, message: 'Server terhubung! Status: OK' });
+    } catch (err) {
+      if (err.response) {
+        setServerTestStatus({ success: true, message: `Server terhubung (HTTP ${err.response.status})` });
+      } else {
+        setServerTestStatus({ success: false, message: `Gagal: ${err.message || 'Tidak dapat dijangkau'}` });
+      }
+    } finally {
+      setIsTestingServer(false);
+    }
+  };
+
+  const handleSaveServerUrl = async () => {
+    try {
+      const saved = await saveApiUrl(serverUrlInput);
+      setActiveServerUrl(saved);
+      setShowServerModal(false);
+      setErrorMessage('');
+      showNotification('Berhasil', `Alamat server disimpan: ${saved}`, 'success');
+    } catch (e) {
+      setServerTestStatus({ success: false, message: 'Gagal menyimpan URL server' });
+    }
+  };
+
+  const handleResetServerUrl = async () => {
+    try {
+      const reset = await resetApiUrl();
+      setServerUrlInput(reset);
+      setActiveServerUrl(reset);
+      setServerTestStatus(null);
+    } catch (e) {
+      // ignore
+    }
+  };
 
   // Tangani tombol back hardware Android saat di halaman Login agar keluar dari aplikasi (tidak balik ke dashboard)
   useFocusEffect(
@@ -84,7 +148,8 @@ export default function LoginScreen({ navigation }) {
 
     setLoading(true);
     try {
-      const res = await axios.post(`${API_URL}/api/auth/login`, { username, password });
+      const activeUrl = (await loadSavedApiUrl()) || API_URL;
+      const res = await axios.post(`${activeUrl}/api/auth/login`, { username, password });
       const loggedInUser = res.data.user;
       const token = res.data.token;
       const refreshToken = res.data.refreshToken;
@@ -122,7 +187,9 @@ export default function LoginScreen({ navigation }) {
       } else if (resp?.status === 400) {
         setErrorMessage(resp.data?.error || 'Mohon periksa data masukan Anda');
       } else {
-        setErrorMessage(resp?.data?.error || resp?.data?.message || 'Gagal terhubung ke server. Periksa koneksi internet Anda.');
+        const targetUrl = (await loadSavedApiUrl()) || API_URL;
+        setActiveServerUrl(targetUrl);
+        setErrorMessage(resp?.data?.error || resp?.data?.message || `Gagal terhubung ke server (${targetUrl}). Periksa koneksi internet atau sesuaikan IP server.`);
       }
     } finally {
       setLoading(false);
@@ -284,6 +351,101 @@ export default function LoginScreen({ navigation }) {
           username={username}
         />
 
+        {/* Modal Pengaturan Alamat Server */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={showServerModal}
+          onRequestClose={() => setShowServerModal(false)}
+        >
+          <View style={tw`flex-1 justify-center items-center bg-black/60 px-4`}>
+            <View style={tw`bg-white w-full max-w-sm rounded-[30px] p-6 shadow-2xl`}>
+              <View style={tw`flex-row items-center justify-between mb-4`}>
+                <View style={tw`flex-row items-center`}>
+                  <View style={tw`bg-blue-50 p-2.5 rounded-2xl mr-3`}>
+                    <Ionicons name="server-outline" size={24} color="#0055A5" />
+                  </View>
+                  <View>
+                    <Text style={tw`text-lg font-black text-gray-800`}>Pengaturan Server</Text>
+                    <Text style={tw`text-xs text-gray-400 font-semibold`}>IP / Host backend aplikasi</Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={() => setShowServerModal(false)} style={tw`p-1.5 bg-gray-100 rounded-full`}>
+                  <Ionicons name="close" size={18} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={tw`text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 ml-1`}>Alamat URL Server</Text>
+              <View style={tw`flex-row items-center bg-slate-50 border-2 border-slate-200 rounded-2xl px-3.5 py-1 mb-3`}>
+                <Ionicons name="link-outline" size={18} color="#0055A5" style={tw`mr-2`} />
+                <TextInput
+                  style={tw`flex-1 py-3 text-gray-800 font-bold text-sm`}
+                  value={serverUrlInput}
+                  onChangeText={(val) => {
+                    setServerUrlInput(val);
+                    setServerTestStatus(null);
+                  }}
+                  placeholder="http://192.168.1.3:3000"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+
+              {serverTestStatus && (
+                <View style={tw`p-3 rounded-xl mb-3 flex-row items-center ${serverTestStatus.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                  <Ionicons
+                    name={serverTestStatus.success ? "checkmark-circle" : "alert-circle"}
+                    size={18}
+                    color={serverTestStatus.success ? "#10B981" : "#EF4444"}
+                    style={tw`mr-2`}
+                  />
+                  <Text style={tw`text-xs font-bold flex-1 ${serverTestStatus.success ? 'text-green-700' : 'text-red-700'}`}>
+                    {serverTestStatus.message}
+                  </Text>
+                </View>
+              )}
+
+              <View style={tw`flex-row items-center justify-between mb-4`}>
+                <TouchableOpacity
+                  onPress={handleResetServerUrl}
+                  style={tw`py-1.5 px-2`}
+                >
+                  <Text style={tw`text-xs text-[#0055A5] font-bold`}>↺ Reset Otomatis</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleTestServerConnection}
+                  disabled={isTestingServer}
+                  style={tw`bg-gray-100 px-3.5 py-2 rounded-xl flex-row items-center`}
+                >
+                  {isTestingServer ? (
+                    <ActivityIndicator size="small" color="#0055A5" />
+                  ) : (
+                    <>
+                      <Ionicons name="pulse-outline" size={14} color="#0055A5" style={tw`mr-1.5`} />
+                      <Text style={tw`text-xs font-bold text-gray-700`}>Uji Koneksi</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <View style={tw`flex-row gap-2`}>
+                <TouchableOpacity
+                  style={tw`flex-1 bg-gray-100 py-3.5 rounded-2xl items-center`}
+                  onPress={() => setShowServerModal(false)}
+                >
+                  <Text style={tw`text-gray-700 font-bold text-sm`}>Batal</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={tw`flex-1 bg-[#ED1C24] py-3.5 rounded-2xl items-center shadow-md`}
+                  onPress={handleSaveServerUrl}
+                >
+                  <Text style={tw`text-white font-bold text-sm`}>Simpan</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
 
 
         <Animated.View style={[tw`flex-1`, { transform: [{ translateY: keyboardShift }] }]}>
@@ -326,7 +488,16 @@ export default function LoginScreen({ navigation }) {
             </View>
 
             {/* Kotak Login Solid Putih Lebih Besar untuk Web */}
-            <View style={tw`bg-white w-full max-w-[420px] p-8 rounded-[40px] shadow-2xl mb-10 z-20`}>
+            <View style={tw`bg-white w-full max-w-[420px] p-8 rounded-[40px] shadow-2xl mb-10 z-20 relative`}>
+
+              {/* Tombol Pengaturan Server */}
+              <TouchableOpacity
+                onPress={handleOpenServerModal}
+                style={tw`absolute top-6 right-6 p-2 bg-slate-50 border border-slate-200 rounded-full z-30`}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="settings-outline" size={16} color="#64748B" />
+              </TouchableOpacity>
 
               {/* Logo DIGI Handover */}
               <View style={tw`items-center mb-8 mt-2`}>
@@ -379,10 +550,19 @@ export default function LoginScreen({ navigation }) {
               </View>
 
               {errorMessage !== '' && (
-                <View style={tw`bg-red-50 p-3 rounded-xl mb-4 border border-red-100`}>
-                  <Text style={tw`text-red-600 text-xs font-bold text-center`}>
+                <View style={tw`bg-red-50 p-3.5 rounded-2xl mb-4 border border-red-100`}>
+                  <Text style={tw`text-red-600 text-xs font-bold text-center leading-relaxed`}>
                     {errorMessage}
                   </Text>
+                  {errorMessage.includes('Gagal terhubung') && (
+                    <TouchableOpacity
+                      onPress={handleOpenServerModal}
+                      style={tw`mt-2.5 self-center bg-red-100 px-3.5 py-1.5 rounded-xl flex-row items-center border border-red-200`}
+                    >
+                      <Ionicons name="construct-outline" size={14} color="#B91C1C" style={tw`mr-1.5`} />
+                      <Text style={tw`text-red-700 text-xs font-bold`}>Atur IP Server</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
 

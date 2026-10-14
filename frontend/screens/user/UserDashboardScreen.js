@@ -107,9 +107,13 @@ export default function UserDashboardScreen({ navigation }) {
     try {
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) {
-        const userData = JSON.parse(userStr);
+        let userData = JSON.parse(userStr);
+        if (userData.role === 'SUPER_ADMIN' || (userData.role && userData.role.toUpperCase() === 'SUPER_ADMIN')) {
+          userData.role = 'ADMIN';
+          await AsyncStorage.setItem('user', JSON.stringify(userData));
+        }
         setUser(userData);
-        if (userData.role === 'SUPER_ADMIN' || userData.role === 'PENGAWAS' || userData.role === 'ADMIN') {
+        if (userData.role === 'ADMIN' || userData.role === 'PENGAWAS') {
           fetchAlerts();
         }
         fetchNotifications();
@@ -269,13 +273,30 @@ export default function UserDashboardScreen({ navigation }) {
   };
 
   const getInitials = () => {
-    if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') return 'A\u200BD';
-    if (user.role === 'PENGAWAS') return 'P\u200BS';
-    const parts = user.name.trim().split(' ');
+    if (!user) return 'PT';
+    const roleUpper = (user.role || '').toUpperCase().replace(/[\s_]/g, '');
+    const nameUpper = (user.name || '').toUpperCase();
+    const usernameUpper = (user.username || '').toUpperCase();
+
+    if (
+      roleUpper === 'ADMIN' ||
+      roleUpper === 'SUPERADMIN' ||
+      roleUpper.includes('ADMIN') ||
+      nameUpper.includes('ADMIN') ||
+      usernameUpper.includes('ADMIN')
+    ) {
+      return 'A\u200BD';
+    }
+
+    if (roleUpper === 'PENGAWAS' || roleUpper.includes('PENGAWAS') || nameUpper.includes('PENGAWAS')) {
+      return 'P\u200BS';
+    }
+
+    const parts = (user.name || '').trim().split(' ');
     if (parts.length > 1) {
       return (parts[0][0] + '\u200B' + parts[1][0]).toUpperCase();
     }
-    return user.name.substring(0, 2).toUpperCase();
+    return (user.name || 'PT').substring(0, 2).toUpperCase();
   };
 
   const orb1TranslateY = floatAnim1.interpolate({ inputRange: [0, 1], outputRange: [0, -50] });
@@ -757,8 +778,20 @@ export default function UserDashboardScreen({ navigation }) {
                           actionId: notif.actionId,
                           noPolisi: notif.noPolisi
                         });
-                      } else if (notif.actionType === 'VIEW_AMT_ISSUE') {
-                        navigation.navigate('IssueList');
+                      } else if (
+                        notif.actionType === 'VIEW_AMT_ISSUE' ||
+                        notif.title?.toLowerCase().includes('kepatuhan amt') ||
+                        notif.title?.toLowerCase().includes('perlengkapan kerja') ||
+                        notif.message?.toLowerCase().includes('perlengkapan')
+                      ) {
+                        navigation.navigate('IssueList', {
+                          category: 'AMT',
+                          initialCategory: 'AMT',
+                          amtFilter: (notif.type === 'success' || notif.type === 'SUCCESS') ? 'ALL' : 'OPEN',
+                          actionId: notif.actionId,
+                          noPolisi: notif.noPolisi,
+                          timestamp: Date.now()
+                        });
                       }
                     }}
                   >

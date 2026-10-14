@@ -6,52 +6,94 @@ import axios from 'axios';
 // Storage key untuk IP kustom
 export const CUSTOM_API_URL_KEY = '@custom_server_url';
 
-// 1. Dapatkan fallback IP default (dari .env / Expo Go / Web / Default IP)
-export const getDefaultApiUrl = () => {
-  // Prioritas 1: Environment variable (dari .env)
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '');
-  }
-  let host = 'localhost';
+// Helper untuk deteksi host IP dari Expo Go / Metro
+export const getExpoHost = () => {
   try {
-    if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined' && window.location?.hostname) {
-        host = window.location.hostname;
+    const hostUri = Constants.expoConfig?.hostUri
+      || Constants.expoGoConfig?.debuggerHost
+      || Constants.manifest?.debuggerHost
+      || Constants.manifest2?.extra?.expoGo?.debuggerHost;
+    if (hostUri) {
+      const parsed = hostUri.split(':')[0];
+      if (parsed && parsed !== 'localhost' && parsed !== '127.0.0.1') {
+        return parsed;
       }
-    } else if (Constants.expoConfig?.hostUri) {
-      const parsed = Constants.expoConfig.hostUri.split(':')[0];
-      if (parsed) host = parsed;
-    } else if (Constants.manifest?.debuggerHost) {
-      const parsed = Constants.manifest.debuggerHost.split(':')[0];
-      if (parsed) host = parsed;
-    } else if (Constants.manifest2?.extra?.expoGo?.debuggerHost) {
-      const parsed = Constants.manifest2.extra.expoGo.debuggerHost.split(':')[0];
-      if (parsed) host = parsed;
+    }
+    if (Constants.linkingUri) {
+      const match = Constants.linkingUri.match(/:\/\/(.[^/:]+)/);
+      if (match && match[1] && match[1] !== 'localhost' && match[1] !== '127.0.0.1') {
+        return match[1];
+      }
+    }
+    if (Constants.experienceUrl) {
+      const match = Constants.experienceUrl.match(/:\/\/(.[^/:]+)/);
+      if (match && match[1] && match[1] !== 'localhost' && match[1] !== '127.0.0.1') {
+        return match[1];
+      }
     }
   } catch (e) {
-    // Standalone APK: Constants.manifest bisa null, jangan crash
-    console.warn('getDefaultApiUrl fallback ke localhost:', e?.message);
+    // ignore
   }
-  return `http://${host}:3000`;
+  return null;
+};
+
+// 1. Dapatkan fallback IP default (dari .env / Expo Go / Web / Default IP)
+export const getDefaultApiUrl = () => {
+  // Web browser
+  if (Platform.OS === 'web') {
+    if (process.env.EXPO_PUBLIC_API_URL) {
+      return process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '');
+    }
+    const host = (typeof window !== 'undefined' && window.location?.hostname) ? window.location.hostname : 'localhost';
+    return `http://${host}:3000`;
+  }
+
+  // Mobile: Jika env berupa tunnel atau HTTPS remote, prioritaskan
+  const envUrl = process.env.EXPO_PUBLIC_API_URL ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '') : null;
+  if (envUrl && envUrl.startsWith('https://')) {
+    return envUrl;
+  }
+
+  // Mobile dalam Expo Go: Deteksi host IP aktif dari debugger/Metro (paling akurat saat ganti Wi-Fi)
+  const expoHost = getExpoHost();
+  if (expoHost) {
+    return `http://${expoHost}:3000`;
+  }
+
+  // Jika env URL ada dan valid IPv4 lokal (bukan localhost atau IP usang)
+  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1') && !envUrl.includes('192.168.1.33')) {
+    return envUrl;
+  }
+
+  // Fallback default LAN
+  return 'http://192.168.1.3:3000';
 };
 
 // URL Aktif yang diekspor
 export let API_URL = getDefaultApiUrl();
+export const getApiUrl = () => API_URL || getDefaultApiUrl();
 
 // Fungsi untuk load URL tersimpan di AsyncStorage saat startup
 export const loadSavedApiUrl = async () => {
   try {
     const saved = await AsyncStorage.getItem(CUSTOM_API_URL_KEY);
     if (saved && saved.trim()) {
-      API_URL = saved.trim().replace(/\/+$/, '');
-      console.log(`[DIAGNOSTIC] loadSavedApiUrl() -> using CUSTOM_API_URL: ${API_URL}`);
-      return API_URL;
+      const clean = saved.trim().replace(/\/+$/, '');
+      // Bersihkan jika tersimpan localhost atau IP lama yang sudah mati pada mobile
+      if (Platform.OS !== 'web' && (clean.includes('localhost') || clean.includes('127.0.0.1') || clean.includes('192.168.1.33'))) {
+        console.warn('[CONFIG] Purging obsolete saved IP on mobile:', clean);
+        await AsyncStorage.removeItem(CUSTOM_API_URL_KEY);
+      } else {
+        API_URL = clean;
+        console.log(`[CONFIG] loadSavedApiUrl() -> using CUSTOM_API_URL: ${API_URL}`);
+        return API_URL;
+      }
     }
   } catch (e) {
     console.warn('Gagal memuat saved API_URL:', e);
   }
   API_URL = getDefaultApiUrl();
-  console.log(`[DIAGNOSTIC] loadSavedApiUrl() -> using default: ${API_URL}`);
+  console.log(`[CONFIG] loadSavedApiUrl() -> using default: ${API_URL}`);
   return API_URL;
 };
 
@@ -83,7 +125,6 @@ export const resetApiUrl = async () => {
   }
 };
 
-
 export default {
   get API_URL() {
     return API_URL;
@@ -92,5 +133,5 @@ export default {
   loadSavedApiUrl,
   saveApiUrl,
   resetApiUrl,
+  getExpoHost,
 };
-

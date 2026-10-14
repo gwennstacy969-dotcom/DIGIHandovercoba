@@ -51,8 +51,25 @@ export default function WebNavbar({
   // Inisial avatar yang elegan (menggunakan zero-width space \u200B agar Chrome tidak auto-translate 'AD' ke 'IKLAN')
   const getInitials = () => {
     if (!user) return 'PT';
-    if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') return 'A\u200BD';
-    if (user.role === 'PENGAWAS') return 'P\u200BS';
+    const roleUpper = (user.role || '').toUpperCase().replace(/[\s_]/g, '');
+    const nameUpper = (user.name || '').toUpperCase();
+    const usernameUpper = (user.username || '').toUpperCase();
+
+    // Pastikan seluruh variasi admin (ADMIN, SUPER_ADMIN, Super Admin, dll.) selalu berinisial AD di mobile maupun web
+    if (
+      roleUpper === 'ADMIN' ||
+      roleUpper === 'SUPERADMIN' ||
+      roleUpper.includes('ADMIN') ||
+      nameUpper.includes('ADMIN') ||
+      usernameUpper.includes('ADMIN')
+    ) {
+      return 'A\u200BD';
+    }
+
+    if (roleUpper === 'PENGAWAS' || roleUpper.includes('PENGAWAS') || nameUpper.includes('PENGAWAS')) {
+      return 'P\u200BS';
+    }
+
     if (!user.name) return 'PT';
     const parts = user.name.trim().split(' ');
     if (parts.length > 1) {

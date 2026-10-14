@@ -158,10 +158,14 @@ export default function App() {
             }
           }
 
-          const user = JSON.parse(userStr);
+          let user = JSON.parse(userStr);
+          if (user.role === 'SUPER_ADMIN' || (user.role && user.role.toUpperCase() === 'SUPER_ADMIN')) {
+            user.role = 'ADMIN';
+            await AsyncStorage.setItem('user', JSON.stringify(user));
+          }
           axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
-          if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') {
+          if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') {
             return 'AdminDashboard';
           } else if (user.role === 'PENGAWAS') {
             return 'PengawasDashboard';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_URL } from '../../config';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Dimensions, Platform, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Dimensions, Platform, Image, TextInput, Modal, ScrollView, KeyboardAvoidingView } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import tw from 'twrnc';
 import { Ionicons } from '@expo/vector-icons';
@@ -73,10 +73,35 @@ export default function ScannerScreen({ route, navigation }) {
     }
   };
 
+  const [manualModalVisible, setManualModalVisible] = useState(false);
+  const [manualInput, setManualInput] = useState('');
+  const [vehiclesList, setVehiclesList] = useState([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(false);
+
+  useEffect(() => {
+    if (manualModalVisible && vehiclesList.length === 0) {
+      setLoadingVehicles(true);
+      AsyncStorage.getItem('token').then(token => {
+        axios.get(`${API_URL}/api/vehicles`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).then(res => {
+          if (Array.isArray(res.data)) {
+            setVehiclesList(res.data);
+          }
+        }).catch(err => {
+          console.warn('Gagal memuat daftar kendaraan:', err.message);
+        }).finally(() => {
+          setLoadingVehicles(false);
+        });
+      });
+    }
+  }, [manualModalVisible]);
+
   useSubpageBackHandler({
     navigation,
     user,
     modals: [
+      { isOpen: manualModalVisible, close: () => setManualModalVisible(false) },
       { isOpen: !!scanResult && scanResult !== 'not_started', close: () => setScanResult(null) },
       { isOpen: scanResult === 'not_started', close: () => { setScanResult(null); navigateToDashboard(); } },
     ],
@@ -616,6 +641,21 @@ export default function ScannerScreen({ route, navigation }) {
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
 
+        {/* Tombol Input Manual Plat Nomor / Barcode */}
+        {!scanResult && (
+          <View style={tw`absolute bottom-8 left-6 right-6 items-center z-40`}>
+            <TouchableOpacity
+              style={tw`bg-white/95 px-6 py-3.5 rounded-2xl flex-row items-center border border-white shadow-xl active:scale-95`}
+              onPress={() => setManualModalVisible(true)}
+            >
+              <Ionicons name="keypad-outline" size={20} color="#0055A5" style={tw`mr-2.5`} />
+              <Text style={tw`text-[#0055A5] font-black text-sm tracking-wide`}>
+                Input Manual Plat Nomor / Barcode
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {scanResult === 'recap' && renderRecapModal()}
         {scanResult === 'success' && renderSuccessModal()}
 
@@ -757,6 +797,133 @@ export default function ScannerScreen({ route, navigation }) {
           secondaryText="Kembali ke Beranda"
           onSecondary={() => { setScanResult(null); navigateToDashboard(); }}
         />
+
+        {/* MODAL INPUT MANUAL PLAT NOMOR / BARCODE */}
+        <Modal
+          visible={manualModalVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setManualModalVisible(false)}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={tw`flex-1 justify-end sm:justify-center items-center bg-black/70 sm:p-4`}
+          >
+            <View style={[
+              tw`bg-white w-full sm:max-w-lg rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl overflow-hidden`,
+              { maxHeight: '85%' }
+            ]}>
+              {/* Header */}
+              <View style={tw`flex-row justify-between items-center pb-4 border-b border-gray-100 mb-4`}>
+                <View style={tw`flex-row items-center flex-1 mr-3`}>
+                  <View style={tw`w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 items-center justify-center mr-3 shrink-0`}>
+                    <Ionicons name="keypad" size={20} color="#0055A5" />
+                  </View>
+                  <View style={tw`flex-1`}>
+                    <Text style={tw`text-lg font-black text-gray-800`}>Pilih / Ketik Nomor Polisi</Text>
+                    <Text style={tw`text-xs text-gray-500 font-bold`}>Identifikasi armada mobil tangki ({type?.toUpperCase() || 'MULAI'})</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setManualModalVisible(false)}
+                  style={tw`w-8 h-8 rounded-full bg-gray-100 items-center justify-center`}
+                >
+                  <Ionicons name="close" size={20} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+
+              {/* TextInput */}
+              <View style={tw`mb-4`}>
+                <Text style={tw`text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5`}>Nomor Polisi / Kode Barcode</Text>
+                <View style={tw`flex-row items-center bg-gray-50 rounded-2xl px-4 py-3 border border-gray-200`}>
+                  <Ionicons name="search" size={20} color="#9CA3AF" />
+                  <TextInput
+                    style={tw`flex-1 ml-3 text-base font-black text-gray-800`}
+                    placeholder="Contoh: AA8410OP atau B9810TEI"
+                    placeholderTextColor="#9CA3AF"
+                    value={manualInput}
+                    onChangeText={setManualInput}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                  />
+                  {manualInput !== '' && (
+                    <TouchableOpacity onPress={() => setManualInput('')}>
+                      <Ionicons name="close-circle" size={20} color="#9CA3AF" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              {/* Submit Button for Manual Input */}
+              {manualInput.trim().length >= 3 && (
+                <TouchableOpacity
+                  style={tw`bg-[#0055A5] py-3.5 rounded-2xl items-center justify-center mb-4 shadow-md shadow-blue-500/30 flex-row`}
+                  onPress={() => {
+                    const plate = manualInput.trim().toUpperCase();
+                    setManualModalVisible(false);
+                    setManualInput('');
+                    handleBarcodeScanned({ data: plate });
+                  }}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={20} color="white" style={tw`mr-2`} />
+                  <Text style={tw`text-white font-black text-sm`}>
+                    Lanjut dengan "{manualInput.trim().toUpperCase()}"
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Suggestion list */}
+              <Text style={tw`text-xs font-black text-gray-400 uppercase tracking-wider mb-2`}>
+                Atau Pilih Cepat dari Armada Terdaftar:
+              </Text>
+              
+              <ScrollView style={tw`max-h-64`} showsVerticalScrollIndicator={false}>
+                {loadingVehicles ? (
+                  <View style={tw`py-8 items-center`}>
+                    <ActivityIndicator size="small" color="#0055A5" />
+                    <Text style={tw`text-xs text-gray-400 mt-2`}>Memuat daftar truk...</Text>
+                  </View>
+                ) : (
+                  vehiclesList
+                    .filter(v => {
+                      if (!manualInput.trim()) return true;
+                      const q = manualInput.trim().toUpperCase().replace(/\s+/g, '');
+                      const np = v.noPolisi.toUpperCase().replace(/\s+/g, '');
+                      const bc = (v.barcode || '').toUpperCase();
+                      return np.includes(q) || bc.includes(q);
+                    })
+                    .slice(0, 30)
+                    .map((item, idx) => (
+                      <TouchableOpacity
+                        key={item.id || idx}
+                        style={tw`p-3.5 bg-gray-50 rounded-2xl mb-2 flex-row justify-between items-center border border-gray-100 active:bg-blue-50 active:border-blue-200`}
+                        onPress={() => {
+                          setManualModalVisible(false);
+                          setManualInput('');
+                          handleBarcodeScanned({ data: item.barcode || item.noPolisi });
+                        }}
+                      >
+                        <View style={tw`flex-row items-center flex-1 mr-2`}>
+                          <View style={tw`w-8 h-8 rounded-full bg-blue-100 items-center justify-center mr-3`}>
+                            <Ionicons name="car-outline" size={16} color="#0055A5" />
+                          </View>
+                          <View>
+                            <Text style={tw`text-sm font-black text-gray-800`}>{item.noPolisi}</Text>
+                            <Text style={tw`text-[11px] text-gray-500 font-medium`}>
+                              {item.brand ? `${item.brand} • ` : ''}{item.kapasitas ? `${item.kapasitas} KL` : (item.jenisKendaraan || 'Mobil Tanki')}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={tw`px-3 py-1 rounded-full bg-blue-50 border border-blue-200`}>
+                          <Text style={tw`text-[11px] font-black text-[#0055A5]`}>Pilih</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))
+                )}
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
       </View>
     </SafeAreaView>
   );

@@ -1,24 +1,24 @@
 // @ts-nocheck
-import WebSidebar from '../../components/WebSidebar';
-import WebNavbar from '../../components/WebNavbar';
-import Toast from 'react-native-toast-message';
 import React, { useState, useEffect } from 'react';
-import { API_URL } from '../../config';
-import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, ActivityIndicator, TextInput, ScrollView } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Platform, Modal, Animated, Image, Easing, ActivityIndicator, TextInput, ScrollView, Dimensions } from 'react-native';
 import tw from 'twrnc';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import axios from 'axios';
+import Toast from 'react-native-toast-message';
+import WebSidebar from '../../components/WebSidebar';
+import WebNavbar from '../../components/WebNavbar';
+import { API_URL } from '../../config';
+import { useRoleGuard } from '../../hooks/useRoleGuard';
+import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
+import { handleLogoutAndReset } from '../../utils/authHelper';
 
 const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
 
 const API_BASE = { toString: () => `${API_URL}/api` };
-
-const { Dimensions } = require('react-native');
-import { useRoleGuard } from '../../hooks/useRoleGuard';
-import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
-import { handleLogoutAndReset } from '../../utils/authHelper';
 
 export default function IssueListScreen({ navigation, route }) {
   useRoleGuard(['SUPER_ADMIN', 'ADMIN', 'PENGAWAS', 'AMT']);
@@ -33,6 +33,26 @@ export default function IssueListScreen({ navigation, route }) {
   const [issueFilter, setIssueFilter] = useState('current'); // 'current' or 'all' for Vehicle
   const [amtFilter, setAmtFilter] = useState('OPEN'); // 'OPEN' or 'ALL' for AMT
   const [screenWidth, setScreenWidth] = useState(Dimensions.get('window').width);
+
+  // Sinkronisasi kategori dan filter saat menerima params baru dari navigasi
+  useEffect(() => {
+    const targetCat = route?.params?.category || route?.params?.initialCategory;
+    if (targetCat) {
+      const upper = String(targetCat).toUpperCase();
+      if (upper === 'AMT' || upper === 'VEHICLE') {
+        setActiveCategory(upper);
+      }
+    }
+    if (route?.params?.amtFilter) {
+      setAmtFilter(route.params.amtFilter);
+    }
+    if (route?.params?.issueFilter) {
+      setIssueFilter(route.params.issueFilter);
+    }
+    if (route?.params?.searchQuery !== undefined) {
+      setSearchQuery(route.params.searchQuery);
+    }
+  }, [route?.params?.category, route?.params?.initialCategory, route?.params?.amtFilter, route?.params?.issueFilter, route?.params?.searchQuery, route?.params?.timestamp]);
 
   useEffect(() => {
     const onChange = ({ window }) => setScreenWidth(window.width);
@@ -96,7 +116,6 @@ export default function IssueListScreen({ navigation, route }) {
     ])).start();
 
     const loadData = async () => {
-      const { default: AsyncStorage } = await import('@react-native-async-storage/async-storage');
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) setUser(JSON.parse(userStr));
       // Data will be fetched via useEffect listening to issueFilter
@@ -181,7 +200,6 @@ export default function IssueListScreen({ navigation, route }) {
   const fetchAmtIssues = async () => {
     setLoading(true);
     try {
-      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
       const token = await AsyncStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const endpoint = `${API_BASE}/amt-issues?status=${amtFilter === 'OPEN' ? 'OPEN' : 'ALL'}`;
@@ -193,6 +211,33 @@ export default function IssueListScreen({ navigation, route }) {
       setLoading(false);
     }
   };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const targetCat = route?.params?.category || route?.params?.initialCategory;
+      const upper = targetCat ? String(targetCat).toUpperCase() : null;
+      const resolvedCat = (upper === 'AMT' || upper === 'VEHICLE') ? upper : activeCategory;
+
+      if (resolvedCat === 'AMT' || resolvedCat === 'VEHICLE') {
+        setActiveCategory(resolvedCat);
+      }
+      if (route?.params?.amtFilter) {
+        setAmtFilter(route.params.amtFilter);
+      }
+      if (route?.params?.issueFilter) {
+        setIssueFilter(route.params.issueFilter);
+      }
+      if (route?.params?.searchQuery !== undefined) {
+        setSearchQuery(route.params.searchQuery);
+      }
+
+      if (resolvedCat === 'AMT') {
+        fetchAmtIssues();
+      } else {
+        fetchIssues();
+      }
+    }, [route?.params?.category, route?.params?.initialCategory, route?.params?.amtFilter, route?.params?.issueFilter, route?.params?.searchQuery, route?.params?.timestamp, activeCategory])
+  );
 
   const openManageModal = (vehicle) => {
     setSelectedVehicle(vehicle);
@@ -294,7 +339,6 @@ export default function IssueListScreen({ navigation, route }) {
     if (!selectedAmtIssue) return;
     setIsResolving(true);
     try {
-      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
       const token = await AsyncStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -458,7 +502,12 @@ export default function IssueListScreen({ navigation, route }) {
                   tw`flex-1 py-2.5 rounded-xl flex-row items-center justify-center`,
                   activeCategory === 'VEHICLE' ? tw`bg-white shadow-sm` : {}
                 ]}
-                onPress={() => setActiveCategory('VEHICLE')}
+                onPress={() => {
+                  setActiveCategory('VEHICLE');
+                  if (navigation?.setParams) {
+                    navigation.setParams({ category: 'VEHICLE', initialCategory: 'VEHICLE' });
+                  }
+                }}
               >
                 <Ionicons name="car-outline" size={17} color={activeCategory === 'VEHICLE' ? '#002060' : '#6B7280'} style={tw`mr-1.5`} />
                 <Text style={[tw`text-xs font-black tracking-wide`, activeCategory === 'VEHICLE' ? tw`text-[#002060]` : tw`text-gray-500`]}>
@@ -470,7 +519,12 @@ export default function IssueListScreen({ navigation, route }) {
                   tw`flex-1 py-2.5 rounded-xl flex-row items-center justify-center`,
                   activeCategory === 'AMT' ? tw`bg-white shadow-sm` : {}
                 ]}
-                onPress={() => setActiveCategory('AMT')}
+                onPress={() => {
+                  setActiveCategory('AMT');
+                  if (navigation?.setParams) {
+                    navigation.setParams({ category: 'AMT', initialCategory: 'AMT' });
+                  }
+                }}
               >
                 <Ionicons name="person-outline" size={17} color={activeCategory === 'AMT' ? '#002060' : '#6B7280'} style={tw`mr-1.5`} />
                 <Text style={[tw`text-xs font-black tracking-wide`, activeCategory === 'AMT' ? tw`text-[#002060]` : tw`text-gray-500`]}>
