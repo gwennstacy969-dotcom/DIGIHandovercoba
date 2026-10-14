@@ -35,7 +35,8 @@ router.get('/', authenticateToken, async (req, res) => {
       include: {
         handover: {
           include: {
-            user: { select: { id: true, name: true, role: true, jabatan: true } }
+            user: { select: { id: true, name: true, role: true, jabatan: true } },
+            items: true
           }
         },
         user: { select: { id: true, name: true, role: true, jabatan: true } }
@@ -69,7 +70,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
       include: {
         handover: {
           include: {
-            user: { select: { id: true, name: true, role: true, jabatan: true } }
+            user: { select: { id: true, name: true, role: true, jabatan: true } },
+            items: true
           }
         },
         user: { select: { id: true, name: true, role: true, jabatan: true } }

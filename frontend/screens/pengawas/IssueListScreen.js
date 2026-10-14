@@ -20,13 +20,14 @@ import { useRoleGuard } from '../../hooks/useRoleGuard';
 import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
 import { handleLogoutAndReset } from '../../utils/authHelper';
 
-export default function IssueListScreen({ navigation }) {
+export default function IssueListScreen({ navigation, route }) {
   useRoleGuard(['SUPER_ADMIN', 'ADMIN', 'PENGAWAS', 'AMT']);
   const [issues, setIssues] = useState([]);
   const [filteredIssues, setFilteredIssues] = useState([]);
   const [amtIssues, setAmtIssues] = useState([]);
   const [filteredAmtIssues, setFilteredAmtIssues] = useState([]);
-  const [activeCategory, setActiveCategory] = useState('VEHICLE'); // 'VEHICLE' (A) or 'AMT' (B)
+  const initialCategory = route?.params?.category || route?.params?.initialCategory || 'VEHICLE';
+  const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [issueFilter, setIssueFilter] = useState('current'); // 'current' or 'all' for Vehicle
@@ -48,6 +49,8 @@ export default function IssueListScreen({ navigation }) {
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [selectedAmtIssue, setSelectedAmtIssue] = useState(null);
+  const [selectedAmtDetail, setSelectedAmtDetail] = useState(null);
+  const [amtDetailModalVisible, setAmtDetailModalVisible] = useState(false);
   const [amtResolveModalVisible, setAmtResolveModalVisible] = useState(false);
   const [amtActionNote, setAmtActionNote] = useState('');
   const [isResolving, setIsResolving] = useState(false);
@@ -60,10 +63,16 @@ export default function IssueListScreen({ navigation }) {
     await handleLogoutAndReset(navigation);
   };
 
+  const openAmtDetailModal = (item) => {
+    setSelectedAmtDetail(item);
+    setAmtDetailModalVisible(true);
+  };
+
   useSubpageBackHandler({
     navigation,
     user,
     modals: [
+      { isOpen: amtDetailModalVisible, close: () => setAmtDetailModalVisible(false) },
       { isOpen: manageModalVisible, close: () => setManageModalVisible(false) },
       { isOpen: confirmModalVisible, close: () => setConfirmModalVisible(false) },
       { isOpen: successModalVisible, close: () => setSuccessModalVisible(false) },
@@ -320,11 +329,13 @@ export default function IssueListScreen({ navigation }) {
     const canResolve = (user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'PENGAWAS') && !isResolved;
 
     return (
-      <View
+      <TouchableOpacity
         style={[
           tw`bg-white p-5 rounded-2xl mb-4 shadow-sm border ${isResolved ? 'border-blue-200' : 'border-amber-200'}`,
           isLargeScreen ? { width: 'calc(33.333% - 11px)' } : tw`w-full`
         ]}
+        onPress={() => openAmtDetailModal(item)}
+        activeOpacity={0.7}
       >
         <View style={tw`flex-row justify-between items-start mb-3 gap-2`}>
           <View style={[tw`flex-row items-center flex-1 mr-2`, { minWidth: 0 }]}>
@@ -377,7 +388,8 @@ export default function IssueListScreen({ navigation }) {
         {canResolve && (
           <TouchableOpacity
             style={tw`mt-3 bg-[#00A651] p-3 rounded-xl flex-row items-center justify-center shadow-sm`}
-            onPress={() => {
+            onPress={(e) => {
+              e?.stopPropagation?.();
               setSelectedAmtIssue(item);
               setAmtActionNote('');
               setAmtResolveModalVisible(true);
@@ -387,7 +399,17 @@ export default function IssueListScreen({ navigation }) {
             <Text style={tw`text-white font-bold text-xs`}>Tindak Lanjut / Verifikasi Selesai</Text>
           </TouchableOpacity>
         )}
-      </View>
+
+        {/* Footer (Lihat Detail) to match Vehicle cards */}
+        <View style={tw`flex-row items-center justify-between mt-3 pt-3 border-t border-gray-100`}>
+          <Text style={tw`text-[11px] font-bold ${isResolved ? 'text-blue-600' : 'text-amber-600'}`}>
+            {isResolved ? '✓ Terverifikasi Lengkap' : '⚠ Perlu Perlengkapan'}
+          </Text>
+          <Text style={tw`text-[#0055A5] font-bold text-xs`}>
+            Lihat Detail & Preview {'>'}
+          </Text>
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -689,6 +711,290 @@ export default function IssueListScreen({ navigation }) {
             <Text style={tw`text-sm font-medium text-gray-500 text-center z-10`}>
               Isu pada kendaraan {selectedVehicle?.noPolisi} telah diselesaikan.
             </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* DETAIL MODAL TEMUAN KEPATUHAN AMT */}
+      <Modal
+        visible={amtDetailModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setAmtDetailModalVisible(false)}
+      >
+        <View style={tw`flex-1 justify-center items-center bg-black/60 px-4 py-6`}>
+          <View style={[
+            tw`bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl relative`,
+            { maxHeight: '90%' }
+          ]}>
+            {/* Pertamina Identity Accent Bar */}
+            <View style={tw`flex-row h-1.5 w-full`}>
+              <View style={tw`flex-1 bg-[#ED1C24]`} />
+              <View style={tw`flex-1 bg-[#00A651]`} />
+              <View style={tw`flex-1 bg-[#0055A5]`} />
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={tw`p-6`}>
+              {/* Modal Header */}
+              <View style={tw`flex-row items-center justify-between pb-4 border-b border-gray-100 mb-4`}>
+                <View style={tw`flex-row items-center flex-1 mr-2`}>
+                  <View style={[
+                    tw`w-12 h-12 rounded-2xl items-center justify-center mr-3`,
+                    selectedAmtDetail?.status === 'RESOLVED' ? tw`bg-blue-50` : tw`bg-amber-50`
+                  ]}>
+                    <Ionicons
+                      name={selectedAmtDetail?.status === 'RESOLVED' ? 'shield-checkmark' : 'alert-circle'}
+                      size={28}
+                      color={selectedAmtDetail?.status === 'RESOLVED' ? '#0055A5' : '#D97706'}
+                    />
+                  </View>
+                  <View style={tw`flex-1`}>
+                    <Text style={tw`text-lg font-black text-gray-900 tracking-tight`}>
+                      Detail Kepatuhan AMT
+                    </Text>
+                    <Text style={tw`text-[11px] font-bold text-gray-400 mt-0.5`}>
+                      Kategori B • Dokumen & APD AMT
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setAmtDetailModalVisible(false)}
+                  style={tw`w-9 h-9 rounded-full bg-gray-100 items-center justify-center`}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close" size={20} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Status Banner */}
+              <View style={[
+                tw`mb-4 p-4 rounded-2xl border`,
+                selectedAmtDetail?.status === 'RESOLVED'
+                  ? tw`bg-blue-50 border-blue-200`
+                  : tw`bg-amber-50 border-amber-200`
+              ]}>
+                <View style={tw`flex-row items-center justify-between mb-1.5`}>
+                  <View style={tw`flex-row items-center`}>
+                    <Ionicons
+                      name={selectedAmtDetail?.status === 'RESOLVED' ? 'checkmark-circle' : 'warning'}
+                      size={18}
+                      color={selectedAmtDetail?.status === 'RESOLVED' ? '#0055A5' : '#D97706'}
+                      style={tw`mr-1.5`}
+                    />
+                    <Text style={[
+                      tw`text-xs font-black uppercase tracking-wider`,
+                      selectedAmtDetail?.status === 'RESOLVED' ? tw`text-blue-800` : tw`text-amber-800`
+                    ]}>
+                      {selectedAmtDetail?.status === 'RESOLVED' ? 'STATUS: DIVERIFIKASI LENGKAP' : 'STATUS: BELUM SESUAI / PERLU TINDAK LANJUT'}
+                    </Text>
+                  </View>
+                  <View style={[
+                    tw`px-2.5 py-1 rounded-full`,
+                    selectedAmtDetail?.status === 'RESOLVED' ? tw`bg-[#0055A5]` : tw`bg-amber-500`
+                  ]}>
+                    <Text style={tw`text-[10px] font-black text-white uppercase`}>
+                      {selectedAmtDetail?.status === 'RESOLVED' ? 'SELESAI' : 'OPEN'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[
+                  tw`text-xs font-medium leading-4`,
+                  selectedAmtDetail?.status === 'RESOLVED' ? tw`text-blue-700` : tw`text-amber-700`
+                ]}>
+                  {selectedAmtDetail?.status === 'RESOLVED'
+                    ? 'Kelengkapan dokumen / APD kru telah diverifikasi dan disetujui oleh pengawas operasional.'
+                    : 'Kru Awak Mobil Tangki (AMT) terdeteksi tidak membawa atau atribut belum lengkap saat serah terima.'}
+                </Text>
+              </View>
+
+              {/* Card 1: Item & Catatan Temuan */}
+              <View style={tw`bg-gray-50 p-4 rounded-2xl border border-gray-200/80 mb-3`}>
+                <Text style={tw`text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2`}>
+                  Item Temuan & Keterangan
+                </Text>
+                <View style={tw`flex-row items-center justify-between mb-2`}>
+                  <Text style={tw`text-base font-black text-gray-900 flex-1 mr-2`}>
+                    {selectedAmtDetail?.itemName}
+                  </Text>
+                  <View style={tw`px-2.5 py-1 rounded-lg bg-red-100 border border-red-200`}>
+                    <Text style={tw`text-[10px] font-black text-red-700 uppercase tracking-wide`}>
+                      TIDAK MEMBAWA / TIDAK LENGKAP
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={tw`bg-white p-3.5 rounded-xl border border-gray-200`}>
+                  <Text style={tw`text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1`}>
+                    Catatan / Alasan dari Pelapor:
+                  </Text>
+                  <Text style={tw`text-xs font-semibold text-gray-800 leading-4.5`}>
+                    {selectedAmtDetail?.notes || 'Tidak ada catatan tertulis saat penginputan inspeksi serah terima.'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Card 2: Informasi Kru & Unit */}
+              <View style={tw`bg-gray-50 p-4 rounded-2xl border border-gray-200/80 mb-3`}>
+                <Text style={tw`text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2.5`}>
+                  Informasi Kru AMT & Mobil Tangki
+                </Text>
+
+                <View style={tw`flex-row justify-between py-2 border-b border-gray-200/60`}>
+                  <Text style={tw`text-xs text-gray-500 font-medium`}>Nama Kru (AMT)</Text>
+                  <Text style={tw`text-xs text-gray-900 font-bold`}>{selectedAmtDetail?.amtName || '-'}</Text>
+                </View>
+
+                <View style={tw`flex-row justify-between py-2 border-b border-gray-200/60`}>
+                  <Text style={tw`text-xs text-gray-500 font-medium`}>Peran / Penugasan</Text>
+                  <Text style={tw`text-xs text-gray-900 font-bold`}>{selectedAmtDetail?.amtRole || 'AMT 1'}</Text>
+                </View>
+
+                <View style={tw`flex-row justify-between py-2 border-b border-gray-200/60`}>
+                  <Text style={tw`text-xs text-gray-500 font-medium`}>Nomor Polisi Unit</Text>
+                  <Text style={tw`text-xs text-[#002060] font-black`}>{selectedAmtDetail?.handover?.noPolisi || '-'}</Text>
+                </View>
+
+                <View style={tw`flex-row justify-between py-2 border-b border-gray-200/60`}>
+                  <Text style={tw`text-xs text-gray-500 font-medium`}>Sesi Serah Terima</Text>
+                  <Text style={tw`text-xs text-gray-900 font-bold`}>
+                    {selectedAmtDetail?.handover?.type === 'mulai' ? 'Mulai Dinas (Shift Awal)' : 'Akhiri Dinas (Shift Akhir)'}
+                  </Text>
+                </View>
+
+                <View style={tw`flex-row justify-between py-2 border-b border-gray-200/60`}>
+                  <Text style={tw`text-xs text-gray-500 font-medium`}>Pelapor Inspeksi</Text>
+                  <Text style={tw`text-xs text-gray-900 font-bold`}>
+                    {selectedAmtDetail?.handover?.user?.name || selectedAmtDetail?.user?.name || '-'} {selectedAmtDetail?.handover?.user?.role ? `(${selectedAmtDetail.handover.user.role})` : ''}
+                  </Text>
+                </View>
+
+                <View style={tw`flex-row justify-between pt-2`}>
+                  <Text style={tw`text-xs text-gray-500 font-medium`}>Waktu Pencatatan</Text>
+                  <Text style={tw`text-xs text-gray-700 font-semibold`}>
+                    {selectedAmtDetail?.createdAt ? new Date(selectedAmtDetail.createdAt).toLocaleString('id-ID') : '-'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Card 3: Rekap Kepatuhan AMT Lengkap pada Sesi Serah Terima (Jika Ada Data Items) */}
+              {selectedAmtDetail?.handover?.items && selectedAmtDetail.handover.items.filter(i => i.category === 'B').length > 0 && (
+                <View style={tw`bg-gray-50 p-4 rounded-2xl border border-gray-200/80 mb-3`}>
+                  <Text style={tw`text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2`}>
+                    Pemeriksaan Kategori B Lengkap pada Sesi Ini
+                  </Text>
+                  {selectedAmtDetail.handover.items.filter(i => i.category === 'B').map((bItem, bIdx) => (
+                    <View key={bIdx} style={tw`flex-row items-center justify-between py-2 border-b border-gray-200/60 last:border-b-0`}>
+                      <View style={tw`flex-row items-center flex-1 mr-2`}>
+                        <Ionicons
+                          name={bItem.isGood ? 'checkmark-circle' : 'close-circle'}
+                          size={18}
+                          color={bItem.isGood ? '#00A651' : '#ED1C24'}
+                          style={tw`mr-2`}
+                        />
+                        <Text style={[
+                          tw`text-xs font-semibold`,
+                          bItem.isGood ? tw`text-gray-800` : tw`text-red-700`
+                        ]}>
+                          {bItem.name.replace(/\[MAJOR\]|\[MINOR\]/g, '').trim()}
+                        </Text>
+                      </View>
+                      <View style={[
+                        tw`px-2.5 py-0.5 rounded-full`,
+                        bItem.isGood ? tw`bg-green-100` : tw`bg-red-100`
+                      ]}>
+                        <Text style={[
+                          tw`text-[10px] font-bold`,
+                          bItem.isGood ? tw`text-green-800` : tw`text-red-800`
+                        ]}>
+                          {bItem.isGood ? 'LENGKAP' : 'TIDAK'}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Card 4: Riwayat Verifikasi Pengawas */}
+              {selectedAmtDetail?.status === 'RESOLVED' ? (
+                <View style={tw`bg-blue-50/80 p-4 rounded-2xl border border-blue-200 mb-4`}>
+                  <View style={tw`flex-row items-center mb-2.5`}>
+                    <Ionicons name="shield-checkmark" size={18} color="#0055A5" style={tw`mr-1.5`} />
+                    <Text style={tw`text-xs font-black text-blue-900 uppercase tracking-wider`}>
+                      Verifikasi Pengawas
+                    </Text>
+                  </View>
+                  <View style={tw`flex-row justify-between py-1.5 border-b border-blue-100`}>
+                    <Text style={tw`text-xs text-blue-700`}>Diverifikasi oleh</Text>
+                    <Text style={tw`text-xs text-blue-950 font-bold`}>{selectedAmtDetail?.resolvedBy || '-'}</Text>
+                  </View>
+                  <View style={tw`flex-row justify-between py-1.5 border-b border-blue-100`}>
+                    <Text style={tw`text-xs text-blue-700`}>Waktu Verifikasi</Text>
+                    <Text style={tw`text-xs text-blue-950 font-medium`}>
+                      {selectedAmtDetail?.resolvedAt ? new Date(selectedAmtDetail.resolvedAt).toLocaleString('id-ID') : '-'}
+                    </Text>
+                  </View>
+                  <View style={tw`pt-2`}>
+                    <Text style={tw`text-[10px] text-blue-700 font-bold uppercase tracking-wider mb-1`}>
+                      Tindakan yang Dilakukan:
+                    </Text>
+                    <Text style={tw`text-xs text-blue-950 font-medium leading-4.5`}>
+                      {selectedAmtDetail?.actionTaken || 'Perlengkapan telah diverifikasi lengkap oleh pengawas.'}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={tw`bg-amber-50/60 p-3.5 rounded-2xl border border-amber-200/80 mb-4 flex-row items-center`}>
+                  <Ionicons name="information-circle-outline" size={20} color="#D97706" style={tw`mr-2.5 shrink-0`} />
+                  <Text style={tw`text-xs text-amber-800 font-medium flex-1 leading-4`}>
+                    Kru wajib melengkapi atau mengganti perlengkapan sebelum melanjutkan penugasan operasional.
+                  </Text>
+                </View>
+              )}
+
+              {/* Action Buttons */}
+              <View style={tw`flex-row gap-3 pt-2`}>
+                <TouchableOpacity
+                  style={tw`flex-1 py-3.5 rounded-2xl items-center bg-gray-100 border border-gray-200`}
+                  onPress={() => setAmtDetailModalVisible(false)}
+                >
+                  <Text style={tw`text-gray-700 font-bold text-xs`}>Tutup</Text>
+                </TouchableOpacity>
+
+                {((user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'PENGAWAS') && selectedAmtDetail?.status !== 'RESOLVED') && (
+                  <TouchableOpacity
+                    style={tw`flex-1 py-3.5 rounded-2xl items-center bg-[#00A651] flex-row justify-center shadow-md shadow-emerald-500/20`}
+                    onPress={() => {
+                      setAmtDetailModalVisible(false);
+                      setSelectedAmtIssue(selectedAmtDetail);
+                      setAmtActionNote('');
+                      setAmtResolveModalVisible(true);
+                    }}
+                  >
+                    <Ionicons name="checkmark-done" size={17} color="white" style={tw`mr-1.5`} />
+                    <Text style={tw`text-white font-bold text-xs`}>Tindak Lanjut / Selesaikan</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Link to Handover Detail */}
+              {selectedAmtDetail?.handoverId && (
+                <TouchableOpacity
+                  style={tw`mt-3 py-2.5 items-center justify-center flex-row`}
+                  onPress={() => {
+                    setAmtDetailModalVisible(false);
+                    navigation.navigate('HandoverDetail', {
+                      handoverId: selectedAmtDetail.handoverId,
+                      noPolisi: selectedAmtDetail.handover?.noPolisi
+                    });
+                  }}
+                >
+                  <Ionicons name="document-text-outline" size={15} color="#0055A5" style={tw`mr-1.5`} />
+                  <Text style={tw`text-xs font-bold text-[#0055A5]`}>
+                    Lihat Dokumen Serah Terima Lengkap
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
