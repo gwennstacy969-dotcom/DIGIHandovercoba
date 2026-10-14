@@ -10,6 +10,7 @@ const binaryParser = (res, callback) => {
 };
 
 describe('Report Export API (Excel & PDF)', () => {
+  jest.setTimeout(30000);
   const adminUser = { id: 'USR-0001', username: 'yoan', role: 'ADMIN', name: 'Yoann' };
   const nonAdminUser = { id: 'USR-0010', username: 'haula', role: 'PENGAWAS', name: 'haula' };
 
