@@ -232,15 +232,15 @@ export default function PengawasDashboardScreen({ navigation }) {
     );
   }
 
-  const isSuperAdmin = user.role === 'SUPER_ADMIN';
-  const isPengawas = user.role === 'PENGAWAS' || user.role === 'ADMIN';
+  const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN';
+  const isPengawas = user.role === 'PENGAWAS';
   const isAMT = user.role === 'AMT' || user.role === 'USER';
 
   const canSeeOverview = true;
   const canSeeActions = true;
 
   const getRoleLabel = () => {
-    if (isSuperAdmin) return 'Super Admin';
+    if (isAdmin) return 'Admin';
     if (isPengawas) return 'Pengawas';
     return 'Awak Mobil Tangki';
   };

@@ -7,9 +7,8 @@ import axios from 'axios';
 import { API_URL } from '../config';
 
 export default function WebSidebar({ user, activeMenu, navigation, handleLogout, unreadNotificationsCount = 0 }) {
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const isAdmin = user?.role === 'ADMIN';
-  const isManagement = isSuperAdmin || isAdmin;
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+  const isManagement = isAdmin;
   const isPengawas = user?.role === 'PENGAWAS';
 
   const [internalUnreadCount, setInternalUnreadCount] = useState(unreadNotificationsCount || 0);
@@ -149,10 +148,9 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
   if (Platform.OS !== 'web' || !user) return null;
 
   const getRoleLabel = () => {
-    if (isSuperAdmin) return 'Super Admin';
     if (isAdmin) return 'Admin';
     if (isPengawas) return 'Pengawas';
-    return 'Pekerja';
+    return 'Awak Mobil Tangki';
   };
 
   // Zero-width space (\u200B) diselipkan agar Google Translate TIDAK menerjemahkan 'AD' menjadi 'IKLAN'
@@ -341,7 +339,7 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
             <>
               {renderSectionHeader('MANAJEMEN')}
 
-              {/* Manajer Checklist (Khusus Admin / Super Admin) */}
+              {/* Manajer Checklist (Khusus Admin) */}
               {isManagement && renderMenuItem({
                 label: 'Manajer Checklist',
                 iconComponent: <Feather name="check-square" size={20} color={activeMenu === 'Checklist' ? '#FFFFFF' : '#991B1B'} />,
@@ -373,7 +371,7 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
                 onPress: () => navigateTo('WorkerList')
               })}
 
-              {/* Daftar Pengawas (Khusus Admin / Super Admin) */}
+              {/* Daftar Pengawas (Khusus Admin) */}
               {isManagement && renderMenuItem({
                 label: 'Daftar Pengawas',
                 iconComponent: <Feather name="shield" size={20} color={activeMenu === 'PengawasList' ? '#FFFFFF' : '#0055A5'} />,
@@ -381,7 +379,7 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
                 onPress: () => navigateTo('PengawasList')
               })}
 
-              {/* Daftar Admin (Khusus Admin / Super Admin) */}
+              {/* Daftar Admin (Khusus Admin) */}
               {isManagement && renderMenuItem({
                 label: 'Daftar Admin',
                 iconComponent: <Feather name="user-check" size={20} color={activeMenu === 'AdminList' ? '#FFFFFF' : '#0055A5'} />,

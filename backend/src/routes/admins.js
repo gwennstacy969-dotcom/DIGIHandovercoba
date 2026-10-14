@@ -53,7 +53,7 @@ router.post('/', authenticateToken, authorizeRole(['ADMIN', 'SUPER_ADMIN']), asy
         name,
         username,
         password: hashedPassword,
-        role: role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN',
+        role: 'ADMIN',
         jabatan: jabatan || 'Administrator Distribusi'
       },
       select: {
@@ -98,7 +98,7 @@ router.put('/:id', authenticateToken, authorizeRole(['ADMIN', 'SUPER_ADMIN']), a
     const updateData = {
       name: name || existingAdmin.name,
       username: username || existingAdmin.username,
-      role: role ? (role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN') : existingAdmin.role,
+      role: 'ADMIN',
       jabatan: jabatan !== undefined ? jabatan : existingAdmin.jabatan
     };
 

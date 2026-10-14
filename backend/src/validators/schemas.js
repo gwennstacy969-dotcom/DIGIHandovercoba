@@ -49,7 +49,7 @@ const userManageSchema = Joi.object({
   name: Joi.string().trim().required(),
   username: Joi.string().trim().required(),
   password: Joi.string().allow('', null),
-  role: Joi.string().valid('ADMIN', 'SUPER_ADMIN', 'PENGAWAS', 'AMT', 'USER'),
+  role: Joi.string().valid('ADMIN', 'PENGAWAS', 'AMT', 'USER'),
   jabatan: Joi.string().allow(null, '')
 });
 

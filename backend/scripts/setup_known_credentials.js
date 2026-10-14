@@ -21,19 +21,19 @@ async function setupCredentials() {
   });
   console.log('Akun "haulafatiha" (ADMIN) diset password: "240206"');
 
-  // 2. Upsert yoan (Admin / Super Admin) sesuai README
+  // 2. Upsert yoan (Admin) sesuai README
   await prisma.user.upsert({
     where: { username: 'yoan' },
-    update: { password: hashYoan, role: 'SUPER_ADMIN', deletedAt: null },
+    update: { password: hashYoan, role: 'ADMIN', deletedAt: null },
     create: {
       username: 'yoan',
       name: 'Yoan',
       password: hashYoan,
-      role: 'SUPER_ADMIN',
+      role: 'ADMIN',
       jabatan: 'Administrator'
     }
   });
-  console.log('Akun "yoan" (SUPER_ADMIN) diset password: "672023"');
+  console.log('Akun "yoan" (ADMIN) diset password: "672023"');
 
   // 3. Upsert sekar (Pengawas) sesuai README
   await prisma.user.upsert({
@@ -52,16 +52,16 @@ async function setupCredentials() {
   // 4. Upsert admin cadangan
   await prisma.user.upsert({
     where: { username: 'admin' },
-    update: { password: hashAdmin, role: 'SUPER_ADMIN', deletedAt: null },
+    update: { password: hashAdmin, role: 'ADMIN', deletedAt: null },
     create: {
       username: 'admin',
       name: 'Administrator',
       password: hashAdmin,
-      role: 'SUPER_ADMIN',
+      role: 'ADMIN',
       jabatan: 'Fleet Supervisor'
     }
   });
-  console.log('Akun "admin" (SUPER_ADMIN) diset password: "admin123"');
+  console.log('Akun "admin" (ADMIN) diset password: "admin123"');
 }
 
 setupCredentials().finally(() => prisma.$disconnect());

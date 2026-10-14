@@ -241,16 +241,14 @@ export default function AdminDashboardScreen({ navigation }) {
     );
   }
 
-  const isSuperAdmin = user.role === 'SUPER_ADMIN';
-  const isAdmin = user.role === 'ADMIN';
+  const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN';
   const isPengawas = user.role === 'PENGAWAS';
   const isAMT = user.role === 'AMT' || user.role === 'USER';
 
-  const canSeeOverview = isSuperAdmin || isAdmin || isPengawas;
-  const canSeeActions = isSuperAdmin || isAdmin || isAMT;
+  const canSeeOverview = isAdmin || isPengawas;
+  const canSeeActions = isAdmin || isAMT;
 
   const getRoleLabel = () => {
-    if (isSuperAdmin) return 'Super Admin';
     if (isAdmin) return 'Admin';
     if (isPengawas) return 'Pengawas';
     return 'Awak Mobil Tangki';
@@ -491,7 +489,7 @@ export default function AdminDashboardScreen({ navigation }) {
             </TouchableOpacity>
 
             {/* Daftar Admin Full Width Card */}
-            {(isSuperAdmin || isAdmin) && (
+            {isAdmin && (
               <TouchableOpacity
                 style={[tw`w-full p-4 sm:p-5 rounded-[28px] sm:rounded-[32px] border border-white/60 mb-4 flex-row items-center justify-between`, { backgroundColor: 'rgba(255,255,255,0.8)', ...glassStyle, shadowColor: '#0055A5', shadowOpacity: 0.1, shadowRadius: 20 }]}
                 onPress={() => navigation.navigate('AdminList')}
@@ -512,7 +510,7 @@ export default function AdminDashboardScreen({ navigation }) {
             )}
 
             {/* Manajer Checklist Full Width Card */}
-            {(isSuperAdmin || isAdmin) && (
+            {isAdmin && (
               <TouchableOpacity
                 style={[tw`w-full p-4 sm:p-5 rounded-[28px] sm:rounded-[32px] border border-white/60 mb-10 flex-row items-center justify-between`, { backgroundColor: 'rgba(255,255,255,0.8)', ...glassStyle, shadowColor: '#00A651', shadowOpacity: 0.1, shadowRadius: 20 }]}
                 onPress={() => navigation.navigate('ChecklistManager')}
