@@ -665,7 +665,7 @@ export default function AdminDashboardScreen({ navigation }) {
               <Feather name="grid" size={26} color={activeMenu === 'Home' && !isLogoutVisible ? '#1F2937' : '#9CA3AF'} />
             </TouchableOpacity>
 
-            {(isSuperAdmin || isAdmin) && (
+            {isAdmin && (
               <TouchableOpacity style={tw`items-center justify-center px-4 relative`} onPress={() => navigation.replace('ChecklistManager')}>
                 {activeMenu === 'Checklist' && !isLogoutVisible && (
                   <>
@@ -706,7 +706,7 @@ export default function AdminDashboardScreen({ navigation }) {
             )}
 
 
-            {(isSuperAdmin || isPengawas || user?.role === 'ADMIN') && (
+            {(isAdmin || isPengawas) && (
               <TouchableOpacity style={tw`items-center justify-center px-4 relative`} onPress={() => navigation.replace('MessageCenter')}>
                 {activeMenu === 'Messages' && !isLogoutVisible && (
                   <>

@@ -155,7 +155,7 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
 
   // Zero-width space (\u200B) diselipkan agar Google Translate TIDAK menerjemahkan 'AD' menjadi 'IKLAN'
   const getInitials = () => {
-    if (isSuperAdmin || isAdmin) return 'A\u200BD';
+    if (isAdmin) return 'A\u200BD';
     if (isPengawas) return 'P\u200BS';
     const parts = (user.name || '').trim().split(' ');
     if (parts.length > 1) {
@@ -320,7 +320,7 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
             iconComponent: <Feather name="grid" size={20} color={activeMenu === 'Home' ? '#FFFFFF' : '#0055A5'} />,
             active: activeMenu === 'Home',
             onPress: () => {
-              if (isSuperAdmin || isAdmin) navigateTo('AdminDashboard');
+              if (isAdmin) navigateTo('AdminDashboard');
               else if (isPengawas) navigateTo('PengawasDashboard');
               else navigateTo('UserDashboard');
             }

@@ -577,7 +577,7 @@ export default function PengawasDashboardScreen({ navigation }) {
               <Feather name="grid" size={26} color={activeMenu === 'Home' && !isLogoutVisible ? '#1F2937' : '#9CA3AF'} />
             </TouchableOpacity>
 
-            {isSuperAdmin && (
+            {isAdmin && (
               <TouchableOpacity style={tw`items-center justify-center px-4 relative`} onPress={() => navigation.replace('ChecklistManager')}>
                 {activeMenu === 'Checklist' && !isLogoutVisible && (
                   <>
@@ -618,7 +618,7 @@ export default function PengawasDashboardScreen({ navigation }) {
             )}
 
 
-            {(isSuperAdmin || isPengawas) && (
+            {(isAdmin || isPengawas) && (
               <TouchableOpacity style={tw`items-center justify-center px-4 relative`} onPress={() => navigation.replace('MessageCenter')}>
                 {activeMenu === 'Messages' && !isLogoutVisible && (
                   <>
