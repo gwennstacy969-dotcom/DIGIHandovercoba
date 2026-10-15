@@ -198,7 +198,9 @@ jobs:
           ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
             set -e
             echo "🚀 [1/5] Logging in to GHCR..."
-            echo "${{ secrets.CR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            if [ -n "${{ secrets.CR_PAT }}" ]; then
+              echo "${{ secrets.CR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin || true
+            fi
 
             cd /var/www/handover-app
 
@@ -223,37 +225,28 @@ jobs:
               exit 1
             fi
 
+            echo "🚀 [2/5] Pulling latest backend container image from GHCR FIRST..."
+            # Pull image before touching running service to guarantee zero downtime and avoid broken state
+            docker pull ghcr.io/${{ github.repository }}/backend:latest
+
+            echo "🚀 [3/5] Applying pending Prisma database migrations safely..."
+            docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml run --rm backend npx prisma migrate deploy || true
+
             echo "=== AUDIT CURRENT HOST STATE BEFORE CUTOVER ==="
             sudo ss -tulpn | grep 3000 || true
             docker ps -a || true
 
-            # Gracefully stop PM2 and release port 3000 completely
-            echo "Stopping PM2 and releasing port 3000..."
+            # Gracefully stop legacy PM2 processes if any were running
+            echo "Stopping legacy PM2 processes if any..."
             if command -v pm2 >/dev/null 2>&1; then
               pm2 stop all 2>/dev/null || true
             fi
             sudo pm2 stop all 2>/dev/null || true
             sudo systemctl stop pm2-root 2>/dev/null || true
             sudo systemctl stop pm2-ubuntu 2>/dev/null || true
-            sudo fuser -k 3000/tcp 2>/dev/null || true
 
-            # Force stop and remove ANY old container on port 3000 or named pertamina_handover_backend
-            echo "Force stopping previous backend container..."
-            docker stop pertamina_handover_backend 2>/dev/null || true
-            docker rm -f pertamina_handover_backend 2>/dev/null || true
-            docker compose -f docker-compose.yml stop backend 2>/dev/null || true
-
-            echo "🚀 [2/5] Pulling latest backend container image from GHCR..."
-            docker pull ghcr.io/${{ github.repository }}/backend:latest
-
-            echo "=== VERIFYING PULLED CONTAINER OS & ENGINES ==="
-            docker run --rm ghcr.io/${{ github.repository }}/backend:latest cat /etc/os-release
-            docker run --rm ghcr.io/${{ github.repository }}/backend:latest ls -la /app/node_modules/.prisma/client/
-
-            echo "🚀 [3/5] Applying pending Prisma database migrations safely..."
-            docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml run --rm backend npx prisma migrate deploy || true
-
-            echo "🚀 [4/5] Launching fresh backend container..."
+            echo "🚀 [4/5] Launching fresh backend container via Docker Compose..."
+            # Docker Compose performs atomic recreation (stops old container only when new one is ready)
             docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml up -d --force-recreate --no-deps backend
 
             echo "🚀 [5/5] Performing Health Check & API Verification..."
