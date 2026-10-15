@@ -12,6 +12,9 @@
 
 'use strict';
 
+const { assertNotProduction } = require('./_production_guard');
+assertNotProduction('seed_simulated_handovers_aug15_oct13_2026.js');
+
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const { createId } = require('@paralleldrive/cuid2');

@@ -1,3 +1,6 @@
+const { assertNotProduction } = require('./_production_guard');
+assertNotProduction('clean_all_handover_reports_and_notifications.js');
+
 const prisma = require('../src/config/prisma');
 
 async function cleanAllReportsAndNotifications() {

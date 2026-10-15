@@ -276,8 +276,8 @@ jobs:
               echo "=== Verifying /api/auth/login directly on container ==="
               LOGIN_STATUS=$(curl -s -o /tmp/login_test.json -w "%{http_code}" -X POST http://127.0.0.1:3000/api/auth/login \
                 -H "Content-Type: application/json" \
-                -d '{"username":"yoan","password":"invalid_test_password"}')
-              echo "Login endpoint verification status: $LOGIN_STATUS"
+                -d '{}')
+              echo "Login endpoint validation status: $LOGIN_STATUS"
               cat /tmp/login_test.json
               echo ""
 

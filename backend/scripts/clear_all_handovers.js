@@ -1,3 +1,6 @@
+const { assertNotProduction } = require('./_production_guard');
+assertNotProduction('clear_all_handovers.js');
+
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 

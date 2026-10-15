@@ -1,3 +1,6 @@
+const { assertNotProduction } = require('./_production_guard');
+assertNotProduction('import_data.js');
+
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 const xlsx = require('xlsx');

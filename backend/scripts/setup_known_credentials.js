@@ -1,3 +1,6 @@
+const { assertNotProduction } = require('./_production_guard');
+assertNotProduction('setup_known_credentials.js');
+
 const prisma = require('../src/config/prisma');
 const bcrypt = require('bcrypt');
 

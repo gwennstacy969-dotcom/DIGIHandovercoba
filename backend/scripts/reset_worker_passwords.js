@@ -1,3 +1,6 @@
+const { assertNotProduction } = require('./_production_guard');
+assertNotProduction('reset_worker_passwords.js');
+
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
