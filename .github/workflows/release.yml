@@ -80,6 +80,11 @@ jobs:
         working-directory: ./frontend
         run: npm ci --legacy-peer-deps
 
+      - name: Setup Frontend Production Environment
+        working-directory: ./frontend
+        run: |
+          echo "EXPO_PUBLIC_API_URL=https://pertamina-handover.com" > .env
+
       - name: Prebuild Native Android Project
         working-directory: ./frontend
         env:
@@ -88,6 +93,8 @@ jobs:
 
       - name: Build Release APK via Gradle
         working-directory: ./frontend/android
+        env:
+          EXPO_PUBLIC_API_URL: https://pertamina-handover.com
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Prepare Release APK Artifact

@@ -80,7 +80,7 @@ export default function LoginScreen({ navigation }) {
 
     setLoading(true);
     try {
-      const res = await axios.post(`${API_URL}/api/auth/login`, { username, password });
+      const res = await axios.post(`${API_URL}/api/auth/login`, { username, password }, { timeout: 15000 });
       const loggedInUser = res.data.user;
       const token = res.data.token;
       const refreshToken = res.data.refreshToken;

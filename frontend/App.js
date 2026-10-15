@@ -82,6 +82,9 @@ export default function App() {
   const [initialRoute, setInitialRoute] = useState(null);
 
   useEffect(() => {
+    // Set default timeout 15 detik agar request tidak menggantung tanpa batas
+    axios.defaults.timeout = 15000;
+
     // Bypass ngrok browser warning page
     axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
 

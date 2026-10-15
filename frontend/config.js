@@ -68,12 +68,12 @@ export const getDefaultApiUrl = () => {
   }
 
   // Jika env URL ada dan valid IPv4 lokal (bukan localhost atau IP usang)
-  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1') && !envUrl.includes('192.168.1.33')) {
+  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
     return envUrl;
   }
 
-  // Fallback default LAN
-  return 'http://192.168.1.3:3000';
+  // Fallback default resmi untuk Standalone APK / Production
+  return 'https://pertamina-handover.com';
 };
 
 // URL Aktif yang diekspor
