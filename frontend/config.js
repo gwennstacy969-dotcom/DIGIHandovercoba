@@ -44,8 +44,15 @@ export const getDefaultApiUrl = () => {
     if (process.env.EXPO_PUBLIC_API_URL) {
       return process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '');
     }
-    const host = (typeof window !== 'undefined' && window.location?.hostname) ? window.location.hostname : 'localhost';
-    return `http://${host}:3000`;
+    if (typeof window !== 'undefined' && window.location) {
+      const { protocol, hostname, port } = window.location;
+      // Jika di hosting produksi tanpa port khusus atau port 80/443 (reverse proxy)
+      if (!port || port === '80' || port === '443') {
+        return `${protocol}//${hostname}`;
+      }
+      return `${protocol}//${hostname}:3000`;
+    }
+    return 'http://localhost:3000';
   }
 
   // Mobile: Jika env berupa tunnel atau HTTPS remote, prioritaskan
@@ -73,24 +80,13 @@ export const getDefaultApiUrl = () => {
 export let API_URL = getDefaultApiUrl();
 export const getApiUrl = () => API_URL || getDefaultApiUrl();
 
-// Fungsi untuk load URL tersimpan di AsyncStorage saat startup
+// Fungsi untuk load URL saat startup (membersihkan URL tersimpan lama)
 export const loadSavedApiUrl = async () => {
   try {
-    const saved = await AsyncStorage.getItem(CUSTOM_API_URL_KEY);
-    if (saved && saved.trim()) {
-      const clean = saved.trim().replace(/\/+$/, '');
-      // Bersihkan jika tersimpan localhost atau IP lama yang sudah mati pada mobile
-      if (Platform.OS !== 'web' && (clean.includes('localhost') || clean.includes('127.0.0.1') || clean.includes('192.168.1.33'))) {
-        console.warn('[CONFIG] Purging obsolete saved IP on mobile:', clean);
-        await AsyncStorage.removeItem(CUSTOM_API_URL_KEY);
-      } else {
-        API_URL = clean;
-        console.log(`[CONFIG] loadSavedApiUrl() -> using CUSTOM_API_URL: ${API_URL}`);
-        return API_URL;
-      }
-    }
+    // Bersihkan custom server url lama agar selalu sinkron dengan server hosting / environment
+    await AsyncStorage.removeItem(CUSTOM_API_URL_KEY);
   } catch (e) {
-    console.warn('Gagal memuat saved API_URL:', e);
+    // ignore
   }
   API_URL = getDefaultApiUrl();
   console.log(`[CONFIG] loadSavedApiUrl() -> using default: ${API_URL}`);
