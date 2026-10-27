@@ -837,23 +837,28 @@ export default function IssueListScreen({ navigation, route }) {
                   : tw`bg-amber-50 border-amber-200`
               ]}>
                 <View style={tw`flex-row items-center justify-between mb-1.5`}>
-                  <View style={tw`flex-row items-center`}>
+                  <View style={[tw`flex-row items-center flex-1 mr-2`, { minWidth: 0, flexShrink: 1 }]}>
                     <Ionicons
                       name={selectedAmtDetail?.status === 'RESOLVED' ? 'checkmark-circle' : 'warning'}
                       size={18}
                       color={selectedAmtDetail?.status === 'RESOLVED' ? '#0055A5' : '#D97706'}
-                      style={tw`mr-1.5`}
+                      style={[tw`mr-1.5`, { flexShrink: 0 }]}
                     />
-                    <Text style={[
-                      tw`text-xs font-black uppercase tracking-wider`,
-                      selectedAmtDetail?.status === 'RESOLVED' ? tw`text-blue-800` : tw`text-amber-800`
-                    ]}>
+                    <Text
+                      style={[
+                        tw`text-xs font-black uppercase tracking-wider flex-1`,
+                        selectedAmtDetail?.status === 'RESOLVED' ? tw`text-blue-800` : tw`text-amber-800`,
+                        { minWidth: 0, flexShrink: 1 }
+                      ]}
+                      numberOfLines={2}
+                    >
                       {selectedAmtDetail?.status === 'RESOLVED' ? 'STATUS: DIVERIFIKASI LENGKAP' : 'STATUS: BELUM SESUAI / PERLU TINDAK LANJUT'}
                     </Text>
                   </View>
                   <View style={[
                     tw`px-2.5 py-1 rounded-full`,
-                    selectedAmtDetail?.status === 'RESOLVED' ? tw`bg-[#0055A5]` : tw`bg-amber-500`
+                    selectedAmtDetail?.status === 'RESOLVED' ? tw`bg-[#0055A5]` : tw`bg-amber-500`,
+                    { flexShrink: 0 }
                   ]}>
                     <Text style={tw`text-[10px] font-black text-white uppercase`}>
                       {selectedAmtDetail?.status === 'RESOLVED' ? 'SELESAI' : 'OPEN'}
