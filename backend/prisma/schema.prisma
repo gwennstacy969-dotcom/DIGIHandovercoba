@@ -28,6 +28,12 @@ model Handover {
   type        String   @default("mulai")
   locationLat Float?
   locationLng Float?
+  locationAddress  String?  @db.Text
+  locationVillage  String?  @db.VarChar(100)
+  locationDistrict String?  @db.VarChar(100)
+  locationCity     String?  @db.VarChar(100)
+  locationProvince String?  @db.VarChar(100)
+  locationCountry  String?  @db.VarChar(100)
   amt1        String?  @db.VarChar(100)
   amt2        String?  @db.VarChar(100)
   timestamp   DateTime @default(now())

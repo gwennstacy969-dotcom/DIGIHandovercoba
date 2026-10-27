@@ -342,9 +342,11 @@ const exportExcel = async (req, res) => {
       const isMulai = h.type === 'mulai';
       const tipeStr = isMulai ? 'Mulai Pekerjaan' : 'Akhiri Pekerjaan';
       const shiftStr = h.shift || '-';
-      const lokasiStr = h.locationLat && h.locationLng
-        ? `Fuel Terminal Maos (${h.locationLat.toFixed(5)}, ${h.locationLng.toFixed(5)})`
-        : 'Fuel Terminal Maos';
+      const lokasiStr = h.locationAddress
+        ? (h.locationLat && h.locationLng ? `${h.locationAddress} (${h.locationLat.toFixed(5)}, ${h.locationLng.toFixed(5)})` : h.locationAddress)
+        : (h.locationLat && h.locationLng
+          ? `Fuel Terminal Maos (${h.locationLat.toFixed(5)}, ${h.locationLng.toFixed(5)})`
+          : 'Fuel Terminal Maos');
 
       const vehicleBadItems = (h.items || []).filter(i => !i.isGood && (i.category === 'A' || !i.category || i.category !== 'B'));
       const amtBadItems = (h.items || []).filter(i => !i.isGood && i.category === 'B');

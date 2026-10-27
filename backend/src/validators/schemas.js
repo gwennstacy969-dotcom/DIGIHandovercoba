@@ -28,6 +28,13 @@ const submitHandoverSchema = Joi.object({
   locationLng: Joi.number().required().messages({
     'any.required': 'Lokasi (Longitude) wajib disertakan'
   }),
+  locationAddress: Joi.string().allow(null, ''),
+  locationVillage: Joi.string().allow(null, ''),
+  locationDistrict: Joi.string().allow(null, ''),
+  locationCity: Joi.string().allow(null, ''),
+  locationProvince: Joi.string().allow(null, ''),
+  locationCountry: Joi.string().allow(null, ''),
+  address: Joi.string().allow(null, ''),
   items: Joi.alternatives().try(Joi.string(), Joi.array()).required().messages({
     'any.required': 'Daftar item checklist wajib disertakan'
   }),

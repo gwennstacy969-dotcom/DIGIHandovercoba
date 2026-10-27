@@ -112,9 +112,11 @@ const amtIssueRoutes = require('./src/routes/amtIssues');
 const notificationRoutes = require('./src/routes/notifications');
 const passwordResetRoutes = require('./src/routes/passwordReset');
 const auditLogRoutes = require('./src/routes/auditLogs');
+const locationRoutes = require('./src/routes/location');
 
 // Mount Modular Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/location', locationRoutes);
 app.use('/api/password-reset', passwordResetRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
 app.use('/api/vehicles', vehicleRoutes);

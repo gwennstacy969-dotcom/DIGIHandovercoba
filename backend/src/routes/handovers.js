@@ -10,6 +10,7 @@ const { submitHandoverSchema } = require('../validators/schemas');
 const { sendNotification, sendAmtComplianceNotification } = require('../services/notificationService');
 const scanTokenService = require('../services/scanTokenService');
 const { reconcileVehicleOperationalStatus } = require('../services/vehicleStatusService');
+const geocodingService = require('../services/geocodingService');
 
 const normalizeName = (name) => {
   if (!name) return '';
@@ -133,6 +134,28 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
     }
 
     const { noPolisi, shift, type, locationLat, locationLng, items, amt1, amt2 } = value;
+    let locationAddress = value.locationAddress || req.body.address || null;
+    let locationVillage = value.locationVillage || null;
+    let locationDistrict = value.locationDistrict || null;
+    let locationCity = value.locationCity || null;
+    let locationProvince = value.locationProvince || null;
+    let locationCountry = value.locationCountry || null;
+
+    if (!locationAddress && locationLat && locationLng) {
+      try {
+        const geo = await geocodingService.reverseGeocode(parseFloat(locationLat), parseFloat(locationLng));
+        if (geo) {
+          locationAddress = geo.address || null;
+          locationVillage = geo.village || null;
+          locationDistrict = geo.district || null;
+          locationCity = geo.city || null;
+          locationProvince = geo.province || null;
+          locationCountry = geo.country || null;
+        }
+      } catch (geoErr) {
+        // Reverse geocoding failure must never block handover submission
+      }
+    }
 
     // B1: Selalu gunakan authenticated userId dari req.user.id
     const userId = req.user.id;
@@ -313,6 +336,12 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
           notes: req.body.notes || null,
           locationLat: locationLat ? parseFloat(locationLat) : null,
           locationLng: locationLng ? parseFloat(locationLng) : null,
+          locationAddress: locationAddress || null,
+          locationVillage: locationVillage || null,
+          locationDistrict: locationDistrict || null,
+          locationCity: locationCity || null,
+          locationProvince: locationProvince || null,
+          locationCountry: locationCountry || null,
           items: {
             create: parsedItems.map(item => ({
               category: item.category || 'A',
@@ -722,6 +751,34 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     if (!handover) {
       return res.status(404).json({ error: 'Data riwayat handover tidak ditemukan.' });
+    }
+
+    // Backfill address for legacy data if missing
+    if (!handover.locationAddress && handover.locationLat && handover.locationLng) {
+      try {
+        const geo = await geocodingService.reverseGeocode(handover.locationLat, handover.locationLng);
+        if (geo && geo.address) {
+          await prisma.handover.update({
+            where: { id: handover.id },
+            data: {
+              locationAddress: geo.address,
+              locationVillage: geo.village || null,
+              locationDistrict: geo.district || null,
+              locationCity: geo.city || null,
+              locationProvince: geo.province || null,
+              locationCountry: geo.country || null,
+            }
+          });
+          handover.locationAddress = geo.address;
+          handover.locationVillage = geo.village;
+          handover.locationDistrict = geo.district;
+          handover.locationCity = geo.city;
+          handover.locationProvince = geo.province;
+          handover.locationCountry = geo.country;
+        }
+      } catch (geoErr) {
+        // Non-blocking
+      }
     }
 
     // Worker hanya boleh melihat handover miliknya sendiri

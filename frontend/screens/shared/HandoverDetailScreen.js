@@ -13,6 +13,7 @@ import WebSidebar from '../../components/WebSidebar';
 import WebNavbar from '../../components/WebNavbar';
 import { getItemOptionLabels } from '../../utils/checklistHelper';
 import { handleLogoutAndReset } from '../../utils/authHelper';
+import { reverseGeocodeCoords } from '../../utils/geocodingHelper';
 import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
 
 const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
@@ -38,6 +39,32 @@ export default function HandoverDetailScreen({ route, navigation }) {
   const [photoRotation, setPhotoRotation] = useState(0);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [detectedAddress, setDetectedAddress] = useState(initialHandover?.locationAddress || null);
+  const [isDetectingAddress, setIsDetectingAddress] = useState(false);
+
+  useEffect(() => {
+    if (handover?.locationAddress) {
+      setDetectedAddress(handover.locationAddress);
+    } else if (handover?.locationLat && handover?.locationLng) {
+      setIsDetectingAddress(true);
+      reverseGeocodeCoords(handover.locationLat, handover.locationLng, authToken)
+        .then(res => {
+          if (res && res.isSuccess && res.address) {
+            setDetectedAddress(res.address);
+          } else {
+            setDetectedAddress('Alamat tidak tersedia');
+          }
+        })
+        .catch(() => {
+          setDetectedAddress('Alamat tidak tersedia');
+        })
+        .finally(() => {
+          setIsDetectingAddress(false);
+        });
+    } else {
+      setDetectedAddress(null);
+    }
+  }, [handover?.id, handover?.locationAddress, handover?.locationLat, handover?.locationLng, authToken]);
 
   useSubpageBackHandler({
     navigation,
@@ -589,13 +616,28 @@ export default function HandoverDetailScreen({ route, navigation }) {
                 </View>
 
                 {handover.locationLat && handover.locationLng && (
-                  <View style={tw`flex-row items-center mb-3`}>
-                    <View style={tw`bg-green-100 p-2 rounded-xl mr-3`}>
-                      <Ionicons name="location" size={18} color="#00A651" />
+                  <View style={tw`bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-200/70 mb-3`}>
+                    <View style={tw`flex-row items-center mb-2`}>
+                      <View style={tw`bg-emerald-100 p-2 rounded-xl mr-3`}>
+                        <Ionicons name="location" size={18} color="#00A651" />
+                      </View>
+                      <View style={tw`flex-1`}>
+                        <Text style={tw`text-[10px] text-emerald-800 font-extrabold uppercase tracking-wider`}>LOKASI GPS</Text>
+                        <Text style={tw`text-sm font-black text-gray-900 tracking-tight`}>
+                          {handover.locationLat.toFixed(5)}, {handover.locationLng.toFixed(5)}
+                        </Text>
+                      </View>
                     </View>
-                    <View>
-                      <Text style={tw`text-xs text-gray-400 font-bold uppercase tracking-wider`}>Lokasi GPS</Text>
-                      <Text style={tw`text-sm font-bold text-gray-800`}>{handover.locationLat.toFixed(5)}, {handover.locationLng.toFixed(5)}</Text>
+                    <View style={tw`pt-2.5 border-t border-emerald-200/60 flex-row items-start`}>
+                      <View style={tw`bg-white p-1 rounded-lg border border-emerald-200/60 mr-2.5 mt-0.5`}>
+                        <Ionicons name="navigate" size={12} color="#00A651" />
+                      </View>
+                      <View style={tw`flex-1`}>
+                        <Text style={tw`text-[10px] text-gray-500 font-extrabold uppercase tracking-wider`}>ALAMAT TERDETEKSI</Text>
+                        <Text style={tw`text-xs font-semibold text-gray-800 leading-snug mt-0.5`}>
+                          {detectedAddress || (isDetectingAddress ? 'Alamat sedang dideteksi...' : (handover.locationAddress || 'Alamat belum tersedia'))}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 )}
@@ -941,9 +983,24 @@ export default function HandoverDetailScreen({ route, navigation }) {
                       <Text style={tw`text-white font-extrabold text-base tracking-wider`}>Dokumentasi Visual</Text>
                       <Text style={tw`text-blue-200 font-medium text-xs mt-0.5`}>{new Date(handover.timestamp).toLocaleString('id-ID')}</Text>
                       {handover.locationLat && handover.locationLng && (
-                        <Text style={tw`text-[#2ECC71] font-bold text-xs mt-1`}>
-                          📍 {handover.locationLat.toFixed(5)}, {handover.locationLng.toFixed(5)}
-                        </Text>
+                        <View style={tw`mt-2 pt-2 border-t border-white/15`}>
+                          <View style={tw`flex-row items-center`}>
+                            <Ionicons name="location" size={13} color="#2ECC71" style={tw`mr-1`} />
+                            <Text style={tw`text-gray-300 text-[10px] font-bold uppercase tracking-wider mr-1`}>Lokasi GPS:</Text>
+                            <Text style={tw`text-[#2ECC71] font-bold text-xs`}>
+                              {handover.locationLat.toFixed(5)}, {handover.locationLng.toFixed(5)}
+                            </Text>
+                          </View>
+                          <View style={tw`mt-1 flex-row items-start`}>
+                            <Ionicons name="navigate-outline" size={13} color="#6EE7B7" style={tw`mr-1 mt-0.5`} />
+                            <View style={tw`flex-1`}>
+                              <Text style={tw`text-gray-300 text-[10px] font-bold uppercase tracking-wider`}>Alamat:</Text>
+                              <Text style={tw`text-emerald-100 font-medium text-xs leading-snug mt-0.5`} numberOfLines={3}>
+                                {detectedAddress || (isDetectingAddress ? 'Alamat sedang dideteksi...' : (handover.locationAddress || 'Alamat tidak tersedia'))}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
                       )}
                     </View>
                   </View>

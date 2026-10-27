@@ -535,7 +535,10 @@ export default function IssueDetailScreen({ route, navigation }) {
                             url: handoverPhoto.previewUrl || handoverPhoto.url,
                             type: item.category === "B" ? "Perlengkapan AMT" : "Perlengkapan Tangki",
                             nopol: issue.handover?.noPolisi,
-                            timestamp: issue.handover?.timestamp
+                            timestamp: issue.handover?.timestamp,
+                            locationLat: issue.handover?.locationLat,
+                            locationLng: issue.handover?.locationLng,
+                            locationAddress: issue.handover?.locationAddress
                           });
                           setPreviewRotation(0);
                         }}
@@ -592,7 +595,10 @@ export default function IssueDetailScreen({ route, navigation }) {
                               url: item.repairPhotoUrl,
                               type: 'Bukti Perbaikan Selesai',
                               nopol: issue.handover?.noPolisi,
-                              timestamp: issue.updatedAt || issue.createdAt
+                              timestamp: issue.updatedAt || issue.createdAt,
+                              locationLat: issue.handover?.locationLat,
+                              locationLng: issue.handover?.locationLng,
+                              locationAddress: issue.handover?.locationAddress
                             });
                             setPreviewRotation(0);
                           }}
@@ -802,6 +808,18 @@ export default function IssueDetailScreen({ route, navigation }) {
                         <Text style={tw`text-gray-300 text-xs mt-0.5`}>
                           {selectedPreviewPhoto.timestamp ? new Date(selectedPreviewPhoto.timestamp).toLocaleString('id-ID') : 'Foto Dokumentasi'}
                         </Text>
+                        {selectedPreviewPhoto.locationLat && selectedPreviewPhoto.locationLng && (
+                          <View style={tw`mt-1 pt-1 border-t border-white/10`}>
+                            <Text style={tw`text-[#2ECC71] font-bold text-xs`}>
+                              📍 {selectedPreviewPhoto.locationLat.toFixed(5)}, {selectedPreviewPhoto.locationLng.toFixed(5)}
+                            </Text>
+                            {selectedPreviewPhoto.locationAddress ? (
+                              <Text style={tw`text-emerald-200 text-[11px] leading-tight mt-0.5`} numberOfLines={2}>
+                                🏠 {selectedPreviewPhoto.locationAddress}
+                              </Text>
+                            ) : null}
+                          </View>
+                        )}
                       </View>
                     </View>
                   </LinearGradient>

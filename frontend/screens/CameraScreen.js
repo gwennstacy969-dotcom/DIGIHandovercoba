@@ -7,6 +7,7 @@ import * as Location from 'expo-location';
 import tw from 'twrnc';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { reverseGeocodeCoords } from '../utils/geocodingHelper';
 
 const REQUIRED_PHOTOS = ['Depan', 'Belakang', 'Kanan', 'Kiri'];
 
@@ -92,6 +93,17 @@ export default function CameraScreen({ route, navigation }) {
       if (location) {
         formData.append('locationLat', location.latitude);
         formData.append('locationLng', location.longitude);
+        try {
+          const geo = await reverseGeocodeCoords(location.latitude, location.longitude);
+          if (geo && geo.isSuccess && geo.address) {
+            formData.append('locationAddress', geo.address);
+            if (geo.village) formData.append('locationVillage', geo.village);
+            if (geo.district) formData.append('locationDistrict', geo.district);
+            if (geo.city) formData.append('locationCity', geo.city);
+            if (geo.province) formData.append('locationProvince', geo.province);
+            if (geo.country) formData.append('locationCountry', geo.country);
+          }
+        } catch (e) {}
       }
 
       // Add photos

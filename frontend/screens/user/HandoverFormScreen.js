@@ -15,6 +15,7 @@ import WebSidebar from '../../components/WebSidebar';
 import WebNavbar from '../../components/WebNavbar';
 import { getItemOptionLabels } from '../../utils/checklistHelper';
 import { handleLogoutAndReset } from '../../utils/authHelper';
+import { reverseGeocodeCoords } from '../../utils/geocodingHelper';
 import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
 
 
@@ -539,11 +540,25 @@ export default function HandoverFormScreen({ route, navigation }) {
           const timestampStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
           let locStr = 'Lokasi tidak ditemukan';
+          let addressStr = 'Alamat sedang dideteksi...';
+          let geoData = null;
+
           if (location) {
             locStr = `Lat: ${location.latitude.toFixed(5)}, Lng: ${location.longitude.toFixed(5)}`;
           }
 
-          setPreviewPhoto({ ...photo, timestampStr, locStr });
+          setPreviewPhoto({ ...photo, timestampStr, locStr, addressStr, geoData, latitude: location?.latitude, longitude: location?.longitude });
+
+          if (location) {
+            reverseGeocodeCoords(location.latitude, location.longitude).then(geo => {
+              const resAddress = (geo && geo.isSuccess && geo.address) ? geo.address : 'Alamat tidak tersedia';
+              setPreviewPhoto(prev => prev ? { ...prev, addressStr: resAddress, geoData: geo } : prev);
+            }).catch(() => {
+              setPreviewPhoto(prev => prev ? { ...prev, addressStr: 'Alamat tidak tersedia' } : prev);
+            });
+          } else {
+            setPreviewPhoto(prev => prev ? { ...prev, addressStr: 'Alamat tidak tersedia' } : prev);
+          }
         } catch (error) {
           console.error("Gagal mengambil foto:", error);
         } finally {
@@ -691,6 +706,35 @@ export default function HandoverFormScreen({ route, navigation }) {
       if (currentLoc) {
         formData.append('locationLat', currentLoc.latitude);
         formData.append('locationLng', currentLoc.longitude);
+
+        let resolvedAddress = null;
+        let resolvedGeo = null;
+        for (const key of Object.keys(photos)) {
+          if (photos[key]?.geoData?.isSuccess && photos[key]?.geoData?.address) {
+            resolvedGeo = photos[key].geoData;
+            resolvedAddress = photos[key].addressStr;
+            break;
+          }
+        }
+
+        if (!resolvedAddress) {
+          try {
+            const cached = await reverseGeocodeCoords(currentLoc.latitude, currentLoc.longitude);
+            if (cached && cached.isSuccess && cached.address) {
+              resolvedGeo = cached;
+              resolvedAddress = cached.address;
+            }
+          } catch (e) {}
+        }
+
+        if (resolvedAddress) {
+          formData.append('locationAddress', resolvedAddress);
+          if (resolvedGeo?.village) formData.append('locationVillage', resolvedGeo.village);
+          if (resolvedGeo?.district) formData.append('locationDistrict', resolvedGeo.district);
+          if (resolvedGeo?.city) formData.append('locationCity', resolvedGeo.city);
+          if (resolvedGeo?.province) formData.append('locationProvince', resolvedGeo.province);
+          if (resolvedGeo?.country) formData.append('locationCountry', resolvedGeo.country);
+        }
       }
 
       for (const key of Object.keys(photos)) {
@@ -1311,8 +1355,13 @@ export default function HandoverFormScreen({ route, navigation }) {
             <Image source={{ uri: previewPhoto.uri }} style={tw`w-full h-full absolute inset-0`} resizeMode="contain" />
 
             {/* WATERMARK OVERLAY PADA PREVIEW */}
-            <View style={tw`absolute bottom-40 left-6 bg-black/60 p-4 rounded-2xl border border-white/20 shadow-2xl`}>
-              <Text style={tw`text-white font-bold text-xs mb-2`}><Ionicons name="location" size={14} color="#2ECC71" /> {previewPhoto.locStr}</Text>
+            <View style={tw`absolute bottom-40 left-6 right-6 bg-black/75 p-4 rounded-2xl border border-white/20 shadow-2xl`}>
+              <Text style={tw`text-white font-bold text-xs mb-1`}><Ionicons name="location" size={14} color="#2ECC71" /> {previewPhoto.locStr}</Text>
+              {previewPhoto.addressStr ? (
+                <Text style={tw`text-emerald-300 font-semibold text-[11px] mb-1.5 leading-snug`} numberOfLines={2}>
+                  📍 {previewPhoto.addressStr}
+                </Text>
+              ) : null}
               <Text style={tw`text-white font-bold text-xs`}><Ionicons name="time" size={14} color="#2ECC71" /> {previewPhoto.timestampStr}</Text>
             </View>
 
