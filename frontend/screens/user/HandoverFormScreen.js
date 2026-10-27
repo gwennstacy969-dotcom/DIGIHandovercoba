@@ -62,7 +62,8 @@ const isAmt1Jabatan = (jbt) => {
 };
 
 export default function HandoverFormScreen({ route, navigation }) {
-  const { noPolisi: initialNoPolisi, type, lastHandover } = route?.params || {};
+  const { noPolisi: initialNoPolisi, type, lastHandover, scanToken } = route?.params || {};
+  const [scanAuthError, setScanAuthError] = useState(!scanToken || !initialNoPolisi);
   const [noPolisi, setNoPolisi] = useState(initialNoPolisi || '');
 
   const [screenWidth, setScreenWidth] = useState(Dimensions.get('window').width);
@@ -672,6 +673,7 @@ export default function HandoverFormScreen({ route, navigation }) {
       formData.append('type', type || 'mulai');
       formData.append('amt1', amt1 || '');
       formData.append('amt2', amt2 || '');
+      formData.append('scanToken', scanToken || '');
 
       const finalItems = items.map(i => ({
         ...i,
@@ -726,6 +728,9 @@ export default function HandoverFormScreen({ route, navigation }) {
 
       const token = await AsyncStorage.getItem('token');
       const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+      if (scanToken) {
+        authHeaders['x-scan-token'] = scanToken;
+      }
       const response = await axios.post(`${API_URL}/api/handovers`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -760,8 +765,13 @@ export default function HandoverFormScreen({ route, navigation }) {
     } catch (error) {
       setLoading(false);
       isSubmittingRef.current = false;
-      console.error(error);
-      showValidationError('Error', 'Gagal mengirim laporan. Pastikan Backend sudah menyala dan internet stabil.');
+      console.error('Submit handover error:', error?.response?.data || error?.message);
+      const serverMsg = error?.response?.data?.error;
+      if (error?.response?.data?.requireScan || error?.response?.status === 403) {
+        showValidationError('Scan QR Diperlukan', serverMsg || 'Akses ditolak: Otorisasi scan tidak valid atau kedaluwarsa. Silakan scan ulang QR Code kendaraan.');
+      } else {
+        showValidationError('Error', serverMsg || 'Gagal mengirim laporan. Pastikan Backend sudah menyala dan internet stabil.');
+      }
     }
   };
 
@@ -1429,6 +1439,24 @@ export default function HandoverFormScreen({ route, navigation }) {
         primaryText="Ya, Kirim"
         onPrimary={confirmAndSubmit}
         onClose={() => setShowConfirmSubmitModal(false)}
+      />
+
+            {/* MODAL BLOKIR AKSES LANGSUNG TANPA SCAN */}
+      <AppModal
+        visible={scanAuthError}
+        type="error"
+        icon="lock-closed"
+        badge="Wajib Scan QR"
+        title={"Scan QR Code\nDiperlukan"}
+        message="Akses langsung ke formulir checklist tidak diizinkan. Seluruh pengguna wajib memindai QR Code resmi pada kendaraan melalui Scanner sebelum dapat membuka checklist."
+        primaryText="Buka Scanner"
+        onPrimary={() => {
+          navigation.replace('Scanner', { type: type || 'mulai' });
+        }}
+        secondaryText="Kembali ke Beranda"
+        onSecondary={() => {
+          goToDashboard();
+        }}
       />
 
       {/* MODAL SUKSES (BERHASIL KIRIM) */}

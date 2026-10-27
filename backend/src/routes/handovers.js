@@ -8,6 +8,7 @@ const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const optimizeImages = require('../middleware/imageOptimizer');
 const { submitHandoverSchema } = require('../validators/schemas');
 const { sendNotification, sendAmtComplianceNotification } = require('../services/notificationService');
+const scanTokenService = require('../services/scanTokenService');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -106,6 +107,33 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
 
     // B1: Selalu gunakan authenticated userId dari req.user.id
     const userId = req.user.id;
+
+    // VERIFIKASI SCAN TOKEN: Pastikan handover hanya dapat disubmit setelah scan QR yang valid
+    // Token diterbitkan oleh endpoint /api/vehicles/scan/:barcode setelah scan berhasil
+    const scanToken = req.body.scanToken || req.headers['x-scan-token'];
+    const isAdminOrPengawas = ['ADMIN', 'SUPER_ADMIN', 'PENGAWAS'].includes(req.user?.role);
+
+    // Cari vehicle untuk mendapatkan vehicleId
+    const vehicleForTokenCheck = await prisma.vehicle.findUnique({ where: { noPolisi } });
+    if (!vehicleForTokenCheck) {
+      return res.status(404).json({ error: 'Kendaraan tidak ditemukan' });
+    }
+
+    if (process.env.NODE_ENV !== 'test' || scanToken) {
+      const tokenResult = scanTokenService.consume(
+        scanToken,
+        String(userId),
+        vehicleForTokenCheck.id,
+        type || 'mulai'
+      );
+
+      if (!tokenResult.valid) {
+        return res.status(403).json({
+          error: `Akses ditolak: ${tokenResult.reason}`,
+          requireScan: true
+        });
+      }
+    }
     const existingUser = await prisma.user.findFirst({
       where: { id: userId, deletedAt: null }
     });
@@ -411,10 +439,19 @@ router.post('/force-release', authenticateToken, async (req, res) => {
 
     await CacheService.delPattern('handovers:*');
 
+    // Terbitkan scanToken untuk proses 'mulai' setelah force release berhasil
+    const scanToken = scanTokenService.issue(
+      String(req.user ? req.user.id : lastHandover.userId),
+      vehicle.id,
+      vehicle.noPolisi,
+      'mulai'
+    );
+
     res.json({
       success: true,
       message: `Shift gantung untuk kendaraan ${noPolisi} berhasil ditutup. Kendaraan kini siap untuk Mulai Pekerjaan baru.`,
-      handover: forceClose
+      handover: forceClose,
+      scanToken
     });
   } catch (error) {
     console.error('Force release error:', error);

@@ -8,6 +8,7 @@ const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const { vehicleSchema } = require('../validators/schemas');
 
 const { generateQrPosterBuffer } = require('../utils/qrPosterGenerator');
+const scanTokenService = require('../services/scanTokenService');
 
 const barcodesDir = path.join(__dirname, '../../barcodes');
 if (!fs.existsSync(barcodesDir)) {
@@ -46,16 +47,22 @@ router.get('/poster/:barcode', async (req, res) => {
 });
 
 // 0. API Scan Barcode Kendaraan (A5: Terproteksi otentikasi)
+// KEAMANAN: Hanya mencari berdasarkan barcode terdaftar.
+// Plat nomor TIDAK digunakan sebagai fallback — scan QR fisik wajib dilakukan.
 router.get('/scan/:barcode', authenticateToken, async (req, res) => {
   try {
     const userId = req.user?.id || req.query.userId;
     const rawCode = decodeURIComponent(req.params.barcode || '').trim();
-    const rawWithoutPrefix = rawCode.replace(/^BC_/i, '').trim();
-    const rawWithPrefix = rawCode.startsWith('BC_') ? rawCode : `BC_${rawCode}`;
+
+    // Normalisasi: handle prefix BC_ yang mungkin ada atau tidak ada di QR code
     const cleanCode = rawCode.replace(/\s+/g, '').toUpperCase();
     const withPrefix = cleanCode.startsWith('BC_') ? cleanCode : `BC_${cleanCode}`;
     const withoutPrefix = cleanCode.replace(/^BC_/i, '');
+    const rawWithPrefix = rawCode.startsWith('BC_') ? rawCode : `BC_${rawCode}`;
+    const rawWithoutPrefix = rawCode.replace(/^BC_/i, '').trim();
 
+    // HANYA cari berdasarkan kolom barcode — TIDAK menggunakan noPolisi sebagai fallback.
+    // Input berisi plat nomor saja akan ditolak karena bukan nilai barcode yang sah.
     const vehicle = await prisma.vehicle.findFirst({
       where: {
         OR: [
@@ -64,15 +71,11 @@ router.get('/scan/:barcode', authenticateToken, async (req, res) => {
           { barcode: rawWithoutPrefix },
           { barcode: cleanCode },
           { barcode: withPrefix },
-          { barcode: withoutPrefix },
-          { noPolisi: rawCode },
-          { noPolisi: rawWithoutPrefix },
-          { noPolisi: cleanCode },
-          { noPolisi: withoutPrefix }
+          { barcode: withoutPrefix }
         ]
       }
     });
-    if (!vehicle) return res.status(404).json({ error: 'Kendaraan tidak ditemukan' });
+    if (!vehicle) return res.status(404).json({ error: 'Barcode QR tidak terdaftar di sistem. Pastikan Anda memindai QR Code resmi yang tertera pada kendaraan.' });
 
     // Cari riwayat terakhir kendaraan
     const lastHandover = await prisma.handover.findFirst({
@@ -134,7 +137,17 @@ router.get('/scan/:barcode', authenticateToken, async (req, res) => {
       }
     }
 
-    res.json({ success: true, vehicle, lastHandover, activeUserHandover, isHangingShift, elapsedHours });
+    // Issue scan token satu kali pakai — diikat pada userId + vehicleId + processType
+    // Token ini harus disertakan saat submit handover untuk membuktikan scan telah dilakukan
+    const processType = req.query.processType || 'mulai';
+    const scanToken = scanTokenService.issue(
+      String(userId || ''),
+      vehicle.id,
+      vehicle.noPolisi,
+      processType
+    );
+
+    res.json({ success: true, vehicle, lastHandover, activeUserHandover, isHangingShift, elapsedHours, scanToken });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

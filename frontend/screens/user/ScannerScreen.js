@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { API_URL } from '../../config';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Dimensions, Platform, Image, TextInput, Modal, ScrollView, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Dimensions, Platform, Image } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import tw from 'twrnc';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +13,7 @@ import WebSidebar from '../../components/WebSidebar';
 import AppModal, { AppModalDetail } from '../../components/AppModal';
 import { handleLogoutAndReset } from '../../utils/authHelper';
 import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
+import { validateQrPosition } from '../../utils/qrPositionValidator';
 
 const normalizeName = (name) => {
   if (!name) return '';
@@ -38,6 +39,7 @@ export default function ScannerScreen({ route, navigation }) {
   const [loading, setLoading] = useState(false);
   const [lastHandover, setLastHandover] = useState(null);
   const [scannedNoPolisi, setScannedNoPolisi] = useState('');
+  const [scanToken, setScanToken] = useState(null);
   const [nextScanResult, setNextScanResult] = useState(null);
   const [hangingElapsedHours, setHangingElapsedHours] = useState(0);
   const isFocused = useIsFocused();
@@ -45,6 +47,11 @@ export default function ScannerScreen({ route, navigation }) {
   const [screenWidth, setScreenWidth] = useState(Dimensions.get('window').width);
   const isLargeScreen = screenWidth >= 768;
   const [user, setUser] = useState(null);
+
+  // QR position validation state
+  const scanBoxRef = useRef(null);
+  const [scanBoxFrame, setScanBoxFrame] = useState(null);
+  const [qrPositionStatus, setQrPositionStatus] = useState('idle'); // 'idle' | 'inside' | 'outside' | 'no_coords'
 
   useEffect(() => {
     const onChange = ({ window }) => setScreenWidth(window.width);
@@ -73,35 +80,10 @@ export default function ScannerScreen({ route, navigation }) {
     }
   };
 
-  const [manualModalVisible, setManualModalVisible] = useState(false);
-  const [manualInput, setManualInput] = useState('');
-  const [vehiclesList, setVehiclesList] = useState([]);
-  const [loadingVehicles, setLoadingVehicles] = useState(false);
-
-  useEffect(() => {
-    if (manualModalVisible && vehiclesList.length === 0) {
-      setLoadingVehicles(true);
-      AsyncStorage.getItem('token').then(token => {
-        axios.get(`${API_URL}/api/vehicles`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }).then(res => {
-          if (Array.isArray(res.data)) {
-            setVehiclesList(res.data);
-          }
-        }).catch(err => {
-          console.warn('Gagal memuat daftar kendaraan:', err.message);
-        }).finally(() => {
-          setLoadingVehicles(false);
-        });
-      });
-    }
-  }, [manualModalVisible]);
-
   useSubpageBackHandler({
     navigation,
     user,
     modals: [
-      { isOpen: manualModalVisible, close: () => setManualModalVisible(false) },
       { isOpen: !!scanResult && scanResult !== 'not_started', close: () => setScanResult(null) },
       { isOpen: scanResult === 'not_started', close: () => { setScanResult(null); navigateToDashboard(); } },
     ],
@@ -119,7 +101,7 @@ export default function ScannerScreen({ route, navigation }) {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem('token');
-      await axios.post(
+      const releaseRes = await axios.post(
         `${API_URL}/api/handovers/force-release`,
         {
           noPolisi: scannedNoPolisi,
@@ -129,11 +111,13 @@ export default function ScannerScreen({ route, navigation }) {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
+      const activeScanToken = releaseRes.data?.scanToken || scanToken;
       setLoading(false);
       setScanResult(null);
       navigation.navigate('HandoverForm', {
         noPolisi: scannedNoPolisi,
-        type: 'mulai'
+        type: 'mulai',
+        scanToken: activeScanToken
       });
     } catch (e) {
       setLoading(false);
@@ -144,23 +128,65 @@ export default function ScannerScreen({ route, navigation }) {
     }
   };
 
-  if (!permission) return <View />;
+  // QR Position validation logic imported from utils/qrPositionValidator.js
 
-  if (!permission.granted) {
-    return (
-      <View style={tw`flex-1 justify-center items-center bg-white px-6`}>
-        <Text style={tw`text-center mb-6 text-lg text-gray-700`}>Kami butuh izin kamera untuk scan barcode kendaraan</Text>
-        <TouchableOpacity style={tw`bg-blue-600 p-4 rounded-xl`} onPress={requestPermission}>
-          <Text style={tw`text-white font-bold`}>Berikan Izin Kamera</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  /**
+   * Called when the scan box View is laid out. Measures its absolute
+   * position on screen so we can compare with barcode coordinates.
+   */
+  const handleScanBoxLayout = () => {
+    if (scanBoxRef.current && scanBoxRef.current.measureInWindow) {
+      scanBoxRef.current.measureInWindow((x, y, width, height) => {
+        setScanBoxFrame({ x, y, width, height });
+      });
+    }
+  };
 
-  const handleBarcodeScanned = async ({ data }) => {
+  // ============================================================
+  // BARCODE SCAN HANDLER — two-phase
+  // ============================================================
+
+  /**
+   * Phase 1: validate position.
+   * Phase 2 (processValidBarcode): run existing API logic.
+   */
+  const handleBarcodeScanned = async (barcodeEvent) => {
     if (loading) return;
 
-    const cleanedData = data.trim().toUpperCase();
+    const { data } = barcodeEvent;
+    const positionStatus = validateQrPosition(barcodeEvent, scanBoxFrame);
+
+    if (positionStatus === 'no_frame') {
+      // Scan box frame not measured yet — wait silently
+      return;
+    }
+
+    if (positionStatus === 'no_coords') {
+      // Platform does not expose QR coordinates (e.g. Expo Camera Web)
+      setErrorTitle('Validasi Posisi Tidak Tersedia');
+      setErrorMessage(
+        'Platform ini tidak mendukung deteksi posisi QR Code. Gunakan perangkat Android atau iOS untuk memindai barcode.'
+      );
+      setScanResult('error');
+      return;
+    }
+
+    if (positionStatus === 'outside') {
+      // QR detected but outside scan box — update visual only, don't process
+      setQrPositionStatus('outside');
+      return;
+    }
+
+    // QR is inside the scan box — proceed
+    setQrPositionStatus('inside');
+    await processValidBarcode(data);
+  };
+
+  /**
+   * Phase 2: full API validation logic (previously inline in handleBarcodeScanned).
+   */
+  const processValidBarcode = async (rawData) => {
+    const cleanedData = rawData.trim().toUpperCase();
     setLoading(true);
     const scannedText = cleanedData;
 
@@ -174,7 +200,7 @@ export default function ScannerScreen({ route, navigation }) {
       // Fetch vehicle data dan ongoing issues secara paralel
       const [vehicleRes, issueRes] = await Promise.all([
         Promise.race([
-          axios.get(`${API_URL}/api/vehicles/scan/${scannedText}?userId=${userId}`),
+          axios.get(`${API_URL}/api/vehicles/scan/${scannedText}?userId=${userId}&processType=${type}`),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Network Timeout')), 5000))
         ]),
         axios.get(`${API_URL}/api/issues/ongoing`).catch(() => ({ data: [] }))
@@ -189,6 +215,9 @@ export default function ScannerScreen({ route, navigation }) {
 
       const vehicleNoPolisi = res.data.vehicle.noPolisi;
       setScannedNoPolisi(vehicleNoPolisi);
+      if (res.data.scanToken) {
+        setScanToken(res.data.scanToken);
+      }
 
       // === STEP 1: Cek apakah kendaraan sedang dalam perbaikan (ada issue ONGOING / PENDING_APPROVAL) ===
       const activeIssue = ongoingIssues.find(issue => issue.handover && issue.handover.noPolisi === vehicleNoPolisi);
@@ -418,7 +447,7 @@ export default function ScannerScreen({ route, navigation }) {
 
   const proceedToForm = () => {
     setScanResult(null);
-    navigation.navigate('HandoverForm', { noPolisi: scannedNoPolisi, type, lastHandover });
+    navigation.navigate('HandoverForm', { noPolisi: scannedNoPolisi, type, lastHandover, scanToken });
   };
 
   const renderRecapModal = () => {
@@ -435,17 +464,13 @@ export default function ScannerScreen({ route, navigation }) {
 
     // Cek issue/kerusakan pada checklist kendaraan (Kategori A)
     const badItemsA = itemsA.filter(i => !i.isGood && !i.isRepaired);
-    const hasMajor = badItemsA.some(i => 
-      (i.severity && i.severity.toLowerCase() === 'major') || 
+    const hasMajor = badItemsA.some(i =>
+      (i.severity && i.severity.toLowerCase() === 'major') ||
       (i.name && i.name.toUpperCase().includes('[MAJOR]'))
     );
     const hasMinor = badItemsA.length > 0 && !hasMajor;
     const hasAmtIssue = countBGood < itemsB.length;
 
-    // Status logic:
-    // 1. Jika ada Major -> status 'Isu' (merah), checklist kendaraan merah
-    // 2. Jika ada Minor -> status 'Perlu Perhatian' (orange), checklist kendaraan orange
-    // 3. Jika normal semua -> status 'Normal' (hijau), checklist kendaraan hijau
     let statusText = 'Normal';
     let statusBg = 'bg-[#E5F5EB]';
     let statusDot = 'bg-[#10B981]';
@@ -465,7 +490,6 @@ export default function ScannerScreen({ route, navigation }) {
       statusColor = 'text-[#F97316]';
       vehicleChecklistColor = '#F97316';
     } else if (hasAmtIssue) {
-      // Kendaraan normal tapi perlengkapan AMT kurang lengkap
       statusText = 'Perlu Perhatian';
       statusBg = 'bg-[#FFEDD5]';
       statusDot = 'bg-[#F97316]';
@@ -601,6 +625,36 @@ export default function ScannerScreen({ route, navigation }) {
     />
   );
 
+  // ============================================================
+  // Derive scan box border color from QR position status
+  // ============================================================
+  const getScanBoxBorderColor = () => {
+    if (scanResult) return 'border-green-500';
+    if (qrPositionStatus === 'inside') return 'border-green-400';
+    if (qrPositionStatus === 'outside') return 'border-orange-400';
+    return 'border-[#0055A5]';
+  };
+
+  const getScanInstructionText = () => {
+    if (loading) return null;
+    if (qrPositionStatus === 'inside') return 'QR Code terdeteksi, memproses...';
+    if (qrPositionStatus === 'outside') return 'Geser QR Code ke tengah kotak';
+    return `Posisikan QR Code tepat di tengah kotak (${type?.toUpperCase() || 'MULAI'})`;
+  };
+
+  if (!permission) return <View />;
+
+  if (!permission.granted) {
+    return (
+      <View style={tw`flex-1 justify-center items-center bg-white px-6`}>
+        <Text style={tw`text-center mb-6 text-lg text-gray-700`}>Kami butuh izin kamera untuk scan barcode kendaraan</Text>
+        <TouchableOpacity style={tw`bg-blue-600 p-4 rounded-xl`} onPress={requestPermission}>
+          <Text style={tw`text-white font-bold`}>Berikan Izin Kamera</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={tw`flex-1 bg-black ${isLargeScreen ? 'flex-row' : 'flex-col'}`}>
       {isLargeScreen && user && (
@@ -621,17 +675,34 @@ export default function ScannerScreen({ route, navigation }) {
           />
         )}
 
-        {/* Overlay UI diletakkan di luar CameraView */}
+        {/* Overlay UI — updated with QR position feedback */}
         <View style={tw`absolute inset-0 justify-center items-center`} pointerEvents="none">
-          <View style={tw`w-72 h-72 border-4 ${scanResult ? 'border-green-500' : 'border-[#0055A5]'} rounded-3xl bg-transparent flex items-center justify-center relative overflow-hidden`}>
+          <View
+            ref={scanBoxRef}
+            onLayout={handleScanBoxLayout}
+            style={tw`w-72 h-72 border-4 ${getScanBoxBorderColor()} rounded-3xl bg-transparent flex items-center justify-center relative overflow-hidden`}
+          >
             {scanResult === null && !loading && (
               <View style={tw`w-full h-1 bg-[#0055A5]/50 absolute top-1/2`} />
             )}
             {loading && <ActivityIndicator size="large" color="#0055A5" />}
           </View>
-          <Text style={tw`text-white bg-black/60 px-4 py-2 mt-6 rounded-full font-bold`}>
-            Arahkan kamera ke QR Kendaraan ({type?.toUpperCase() || 'MULAI'})
-          </Text>
+
+          {/* Instruction text below the scan box */}
+          {getScanInstructionText() && (
+            <Text
+              style={[
+                tw`px-4 py-2 mt-6 rounded-full font-bold text-center`,
+                qrPositionStatus === 'inside'
+                  ? tw`text-green-300 bg-black/60`
+                  : qrPositionStatus === 'outside'
+                  ? tw`text-orange-300 bg-black/60`
+                  : tw`text-white bg-black/60`,
+              ]}
+            >
+              {getScanInstructionText()}
+            </Text>
+          )}
         </View>
 
         <TouchableOpacity
@@ -640,21 +711,6 @@ export default function ScannerScreen({ route, navigation }) {
         >
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
-
-        {/* Tombol Input Manual Plat Nomor / Barcode */}
-        {!scanResult && (
-          <View style={tw`absolute bottom-8 left-6 right-6 items-center z-40`}>
-            <TouchableOpacity
-              style={tw`bg-white/95 px-6 py-3.5 rounded-2xl flex-row items-center border border-white shadow-xl active:scale-95`}
-              onPress={() => setManualModalVisible(true)}
-            >
-              <Ionicons name="keypad-outline" size={20} color="#0055A5" style={tw`mr-2.5`} />
-              <Text style={tw`text-[#0055A5] font-black text-sm tracking-wide`}>
-                Input Manual Plat Nomor / Barcode
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
 
         {scanResult === 'recap' && renderRecapModal()}
         {scanResult === 'success' && renderSuccessModal()}
@@ -798,132 +854,6 @@ export default function ScannerScreen({ route, navigation }) {
           onSecondary={() => { setScanResult(null); navigateToDashboard(); }}
         />
 
-        {/* MODAL INPUT MANUAL PLAT NOMOR / BARCODE */}
-        <Modal
-          visible={manualModalVisible}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setManualModalVisible(false)}
-        >
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={tw`flex-1 justify-end sm:justify-center items-center bg-black/70 sm:p-4`}
-          >
-            <View style={[
-              tw`bg-white w-full sm:max-w-lg rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl overflow-hidden`,
-              { maxHeight: '85%' }
-            ]}>
-              {/* Header */}
-              <View style={tw`flex-row justify-between items-center pb-4 border-b border-gray-100 mb-4`}>
-                <View style={tw`flex-row items-center flex-1 mr-3`}>
-                  <View style={tw`w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 items-center justify-center mr-3 shrink-0`}>
-                    <Ionicons name="keypad" size={20} color="#0055A5" />
-                  </View>
-                  <View style={tw`flex-1`}>
-                    <Text style={tw`text-lg font-black text-gray-800`}>Pilih / Ketik Nomor Polisi</Text>
-                    <Text style={tw`text-xs text-gray-500 font-bold`}>Identifikasi armada mobil tangki ({type?.toUpperCase() || 'MULAI'})</Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setManualModalVisible(false)}
-                  style={tw`w-8 h-8 rounded-full bg-gray-100 items-center justify-center`}
-                >
-                  <Ionicons name="close" size={20} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
-
-              {/* TextInput */}
-              <View style={tw`mb-4`}>
-                <Text style={tw`text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5`}>Nomor Polisi / Kode Barcode</Text>
-                <View style={tw`flex-row items-center bg-gray-50 rounded-2xl px-4 py-3 border border-gray-200`}>
-                  <Ionicons name="search" size={20} color="#9CA3AF" />
-                  <TextInput
-                    style={tw`flex-1 ml-3 text-base font-black text-gray-800`}
-                    placeholder="Contoh: AA8410OP atau B9810TEI"
-                    placeholderTextColor="#9CA3AF"
-                    value={manualInput}
-                    onChangeText={setManualInput}
-                    autoCapitalize="characters"
-                    autoCorrect={false}
-                  />
-                  {manualInput !== '' && (
-                    <TouchableOpacity onPress={() => setManualInput('')}>
-                      <Ionicons name="close-circle" size={20} color="#9CA3AF" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-
-              {/* Submit Button for Manual Input */}
-              {manualInput.trim().length >= 3 && (
-                <TouchableOpacity
-                  style={tw`bg-[#0055A5] py-3.5 rounded-2xl items-center justify-center mb-4 shadow-md shadow-blue-500/30 flex-row`}
-                  onPress={() => {
-                    const plate = manualInput.trim().toUpperCase();
-                    setManualModalVisible(false);
-                    setManualInput('');
-                    handleBarcodeScanned({ data: plate });
-                  }}
-                >
-                  <Ionicons name="checkmark-circle-outline" size={20} color="white" style={tw`mr-2`} />
-                  <Text style={tw`text-white font-black text-sm`}>
-                    Lanjut dengan "{manualInput.trim().toUpperCase()}"
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Suggestion list */}
-              <Text style={tw`text-xs font-black text-gray-400 uppercase tracking-wider mb-2`}>
-                Atau Pilih Cepat dari Armada Terdaftar:
-              </Text>
-              
-              <ScrollView style={tw`max-h-64`} showsVerticalScrollIndicator={false}>
-                {loadingVehicles ? (
-                  <View style={tw`py-8 items-center`}>
-                    <ActivityIndicator size="small" color="#0055A5" />
-                    <Text style={tw`text-xs text-gray-400 mt-2`}>Memuat daftar truk...</Text>
-                  </View>
-                ) : (
-                  vehiclesList
-                    .filter(v => {
-                      if (!manualInput.trim()) return true;
-                      const q = manualInput.trim().toUpperCase().replace(/\s+/g, '');
-                      const np = v.noPolisi.toUpperCase().replace(/\s+/g, '');
-                      const bc = (v.barcode || '').toUpperCase();
-                      return np.includes(q) || bc.includes(q);
-                    })
-                    .slice(0, 30)
-                    .map((item, idx) => (
-                      <TouchableOpacity
-                        key={item.id || idx}
-                        style={tw`p-3.5 bg-gray-50 rounded-2xl mb-2 flex-row justify-between items-center border border-gray-100 active:bg-blue-50 active:border-blue-200`}
-                        onPress={() => {
-                          setManualModalVisible(false);
-                          setManualInput('');
-                          handleBarcodeScanned({ data: item.barcode || item.noPolisi });
-                        }}
-                      >
-                        <View style={tw`flex-row items-center flex-1 mr-2`}>
-                          <View style={tw`w-8 h-8 rounded-full bg-blue-100 items-center justify-center mr-3`}>
-                            <Ionicons name="car-outline" size={16} color="#0055A5" />
-                          </View>
-                          <View>
-                            <Text style={tw`text-sm font-black text-gray-800`}>{item.noPolisi}</Text>
-                            <Text style={tw`text-[11px] text-gray-500 font-medium`}>
-                              {item.brand ? `${item.brand} • ` : ''}{item.kapasitas ? `${item.kapasitas} KL` : (item.jenisKendaraan || 'Mobil Tanki')}
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={tw`px-3 py-1 rounded-full bg-blue-50 border border-blue-200`}>
-                          <Text style={tw`text-[11px] font-black text-[#0055A5]`}>Pilih</Text>
-                        </View>
-                      </TouchableOpacity>
-                    ))
-                )}
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
       </View>
     </SafeAreaView>
   );
