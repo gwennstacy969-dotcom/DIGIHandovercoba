@@ -9,6 +9,7 @@ const { vehicleSchema } = require('../validators/schemas');
 
 const { generateQrPosterBuffer } = require('../utils/qrPosterGenerator');
 const scanTokenService = require('../services/scanTokenService');
+const { reconcileVehicleOperationalStatus } = require('../services/vehicleStatusService');
 
 const barcodesDir = path.join(__dirname, '../../barcodes');
 if (!fs.existsSync(barcodesDir)) {
@@ -77,17 +78,16 @@ router.get('/scan/:barcode', authenticateToken, async (req, res) => {
     });
     if (!vehicle) return res.status(404).json({ error: 'Barcode QR tidak terdaftar di sistem. Pastikan Anda memindai QR Code resmi yang tertera pada kendaraan.' });
 
-    // Cari riwayat terakhir kendaraan
-    const lastHandover = await prisma.handover.findFirst({
-      where: { noPolisi: vehicle.noPolisi },
-      orderBy: { timestamp: 'desc' },
-      include: {
-        items: true,
-        issue: true
-      }
-    });
+    // 1. Rekonsiliasi status operasional kendaraan secara terpusat sebelum data dikirim ke frontend
+    const {
+      vehicle: reconciledVehicle,
+      lastHandover,
+      hasActiveMajorIssue
+    } = await reconcileVehicleOperationalStatus(vehicle, prisma);
 
-    // Cek apakah user sedang memiliki pekerjaan "mulai" yang belum diakhiri dan tidak ada isu/kerusakan
+    const activeVehicle = reconciledVehicle || vehicle;
+
+    // 2. Cek apakah user sedang memiliki pekerjaan "mulai" yang belum diakhiri dan tidak ada isu/kerusakan
     let activeUserHandover = null;
     if (userId) {
       const user = await prisma.user.findUnique({
@@ -102,7 +102,10 @@ router.get('/scan/:barcode', authenticateToken, async (req, res) => {
 
       const userLastHandover = await prisma.handover.findFirst({
         where: { OR: conditions },
-        orderBy: { timestamp: 'desc' },
+        orderBy: [
+          { timestamp: 'desc' },
+          { createdAt: 'desc' }
+        ],
         include: { issue: true, items: true }
       });
 
@@ -112,8 +115,18 @@ router.get('/scan/:barcode', authenticateToken, async (req, res) => {
           where: {
             noPolisi: userLastHandover.noPolisi,
             type: 'akhiri',
-            timestamp: { gt: userLastHandover.timestamp }
-          }
+            OR: [
+              { timestamp: { gt: userLastHandover.timestamp } },
+              {
+                timestamp: userLastHandover.timestamp,
+                createdAt: { gt: userLastHandover.createdAt }
+              }
+            ]
+          },
+          orderBy: [
+            { timestamp: 'desc' },
+            { createdAt: 'desc' }
+          ]
         });
 
         if (!subsequentAkhiri) {
@@ -126,10 +139,10 @@ router.get('/scan/:barcode', authenticateToken, async (req, res) => {
       }
     }
 
-    // Deteksi shift gantung (> 12 jam sejak mulai tanpa diakhiri)
+    // 3. Deteksi shift gantung (> 12 jam sejak mulai tanpa diakhiri)
     let isHangingShift = false;
     let elapsedHours = 0;
-    if (lastHandover && lastHandover.type === 'mulai' && !lastHandover.issue) {
+    if (lastHandover && lastHandover.type === 'mulai' && !hasActiveMajorIssue) {
       const lastTime = new Date(lastHandover.timestamp || lastHandover.createdAt).getTime();
       elapsedHours = Math.round(((Date.now() - lastTime) / (1000 * 60 * 60)) * 10) / 10;
       if (elapsedHours > 12) {
@@ -137,17 +150,25 @@ router.get('/scan/:barcode', authenticateToken, async (req, res) => {
       }
     }
 
-    // Issue scan token satu kali pakai — diikat pada userId + vehicleId + processType
+    // 4. Issue scan token satu kali pakai — diikat pada userId + vehicleId + processType
     // Token ini harus disertakan saat submit handover untuk membuktikan scan telah dilakukan
     const processType = req.query.processType || 'mulai';
     const scanToken = scanTokenService.issue(
       String(userId || ''),
-      vehicle.id,
-      vehicle.noPolisi,
+      activeVehicle.id,
+      activeVehicle.noPolisi,
       processType
     );
 
-    res.json({ success: true, vehicle, lastHandover, activeUserHandover, isHangingShift, elapsedHours, scanToken });
+    res.json({
+      success: true,
+      vehicle: activeVehicle,
+      lastHandover,
+      activeUserHandover,
+      isHangingShift,
+      elapsedHours,
+      scanToken
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

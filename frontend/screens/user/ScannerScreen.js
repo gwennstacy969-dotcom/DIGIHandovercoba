@@ -293,14 +293,17 @@ export default function ScannerScreen({ route, navigation }) {
         const elapsedHours = (Date.now() - lastTimestamp) / (1000 * 60 * 60);
         const shiftGantungDetected = res.data.isHangingShift || (lastType === 'mulai' && !lastHasIssue && elapsedHours > 12);
 
-        if (!isAdminOrPengawas) {
-          if (type === 'mulai' && lastType === 'mulai') {
-            // Cek apakah user yang scan adalah AMT dari perjalanan aktif ini
+        // ==============================================================
+        // VALIDASI SCAN MULAI & AKHIRI (KONSISTEN UNTUK SEMUA ROLE)
+        // ==============================================================
+        if (type === 'mulai') {
+          // 1. Jika riwayat terakhir masih 'mulai', pekerjaan sebelumnya belum diakhiri
+          if (lastType === 'mulai') {
             const isAmt1 = isNameMatch(res.data.lastHandover.amt1, user?.name);
             const isAmt2 = isNameMatch(res.data.lastHandover.amt2, user?.name);
             const isCreator = String(res.data.lastHandover.userId) === String(userId);
 
-            if ((isAmt1 || isAmt2 || isCreator) && !isVehicleReady && !isIssueResolved) {
+            if ((isAmt1 || isAmt2 || isCreator) && !isAdminOrPengawas) {
               setErrorTitle('Pekerjaan Sedang Berjalan');
               setErrorMessage(`Anda (${user?.name || 'AMT'}) tercatat sedang bertugas aktif pada kendaraan ${vehicleNoPolisi}.\n\nJika perjalanan telah selesai, silakan gunakan scan "Akhiri Pekerjaan", bukan Mulai Pekerjaan.`);
               setLoading(false);
@@ -308,29 +311,59 @@ export default function ScannerScreen({ route, navigation }) {
               return;
             }
 
-            // Boleh mulai lagi jika kendaraan READY_TO_START atau issue sebelumnya sudah RESOLVED
-            if (!lastHasIssue && !isVehicleReady && !isIssueResolved) {
-              if (shiftGantungDetected) {
-                setHangingElapsedHours(elapsedHours);
-                setLastHandover(res.data.lastHandover);
-                setScanResult('shift_gantung');
-                setLoading(false);
-                return;
-              }
-              setErrorMessage('Kendaraan ini belum menyelesaikan pekerjaannya (Belum Akhiri Pekerjaan).');
+            if (shiftGantungDetected && !isAdminOrPengawas) {
+              setHangingElapsedHours(elapsedHours);
+              setLastHandover(res.data.lastHandover);
+              setScanResult('shift_gantung');
               setLoading(false);
-              setScanResult('error');
-              return;
-            }
-          } else if (type === 'akhiri') {
-            if (lastType !== 'mulai') {
-              setErrorMessage('Kendaraan ini belum memulai pekerjaan (Belum Mulai Pekerjaan).');
-              setLoading(false);
-              setScanResult('error');
               return;
             }
 
-            // Validasi logic: Ketika scan akhiri, sistem harus mencocokkan AMT yang sama dengan scan mulai
+            setErrorTitle('Pekerjaan Masih Berjalan');
+            setErrorMessage(`Kendaraan ${vehicleNoPolisi} masih memiliki pekerjaan aktif yang belum diakhiri.\n\nSilakan selesaikan dengan scan "Akhiri Pekerjaan" terlebih dahulu.`);
+            setLoading(false);
+            setScanResult('error');
+            return;
+          }
+
+          // 2. Jika kendaraan sedang Maintenance
+          if (res.data.vehicle?.status === 'Maintenance') {
+            setErrorTitle('Kendaraan Dalam Perbaikan');
+            setErrorMessage(`Kendaraan ${vehicleNoPolisi} sedang dalam proses perbaikan (Maintenance) dan belum dapat memulai pekerjaan baru.`);
+            setLoading(false);
+            setScanResult('error');
+            return;
+          }
+
+          // 3. Jika status kendaraan belum READY_TO_START
+          if (!isVehicleReady) {
+            setErrorTitle('Kendaraan Belum Siap');
+            setErrorMessage(`Kendaraan ${vehicleNoPolisi} belum berada pada status siap untuk memulai pekerjaan baru.`);
+            setLoading(false);
+            setScanResult('error');
+            return;
+          }
+        } else if (type === 'akhiri') {
+          // 1. Harus ada pekerjaan 'mulai' yang aktif
+          if (lastType !== 'mulai') {
+            setErrorTitle('Belum Ada Pekerjaan Aktif');
+            setErrorMessage(`Kendaraan ${vehicleNoPolisi} belum memiliki pekerjaan aktif yang dapat diakhiri.`);
+            setLoading(false);
+            setScanResult('error');
+            return;
+          }
+
+          // 2. Status kendaraan harus Active (bukan Maintenance)
+          if (res.data.vehicle?.status === 'Maintenance') {
+            setErrorTitle('Kendaraan Dalam Perbaikan');
+            setErrorMessage(`Kendaraan ${vehicleNoPolisi} masih dalam proses perbaikan dan tidak dapat mengakhiri pekerjaan.`);
+            setLoading(false);
+            setScanResult('error');
+            return;
+          }
+
+          // 3. Validasi kecocokan kru AMT untuk user non-admin/pengawas
+          if (!isAdminOrPengawas) {
             const isAmt1 = isNameMatch(res.data.lastHandover.amt1, user?.name);
             const isAmt2 = isNameMatch(res.data.lastHandover.amt2, user?.name);
             const isCreator = String(res.data.lastHandover.userId) === String(userId);
@@ -338,53 +371,6 @@ export default function ScannerScreen({ route, navigation }) {
             if (!isAmt1 && !isAmt2 && !isCreator) {
               setErrorTitle('AMT Tidak Sesuai');
               setErrorMessage(`Pekerjaan kendaraan ini dimulai oleh kru:\n• AMT 1: ${res.data.lastHandover.amt1 || '-'}\n• AMT 2: ${res.data.lastHandover.amt2 || '-'}\n\nHanya petugas AMT yang memulai perjalanan ini yang dapat mengakhiri pekerjaan.`);
-              setLoading(false);
-              setScanResult('error');
-              return;
-            }
-          }
-        } else {
-          // ==============================
-          // SCAN MULAI (Admin/Pengawas)
-          // ==============================
-          if (type === 'mulai') {
-            if (lastType === 'mulai' && res.data.vehicle?.status === 'Active') {
-              setErrorTitle('Pekerjaan Masih Berjalan');
-              setErrorMessage(`Kendaraan ${vehicleNoPolisi} sudah melakukan Mulai Pekerjaan dan form Mulai telah tersimpan.\n\nKendaraan belum melakukan Akhiri Pekerjaan.\n\nSilakan gunakan Scan "Akhiri Pekerjaan".`);
-              setLoading(false);
-              setScanResult('error');
-              return;
-            }
-            if (res.data.vehicle?.status === 'Maintenance') {
-              setErrorTitle('Kendaraan Dalam Perbaikan');
-              setErrorMessage(`Kendaraan ${vehicleNoPolisi} sedang dalam proses perbaikan dan belum dapat memulai pekerjaan baru.`);
-              setLoading(false);
-              setScanResult('error');
-              return;
-            }
-            if (!isVehicleReady) {
-              setErrorTitle('Kendaraan Belum Siap');
-              setErrorMessage(`Kendaraan ${vehicleNoPolisi} belum berada pada status siap untuk memulai pekerjaan baru.`);
-              setLoading(false);
-              setScanResult('error');
-              return;
-            }
-          }
-
-          // ==============================
-          // SCAN AKHIRI (Admin/Pengawas)
-          // ==============================
-          if (type === 'akhiri') {
-            if (lastType !== 'mulai') {
-              setErrorTitle('Belum Ada Pekerjaan Aktif');
-              setErrorMessage(`Kendaraan ${vehicleNoPolisi} tidak memiliki pekerjaan yang sedang berjalan.`);
-              setLoading(false);
-              setScanResult('error');
-              return;
-            }
-            if (res.data.vehicle?.status === 'Maintenance') {
-              setErrorTitle('Kendaraan Dalam Perbaikan');
-              setErrorMessage(`Kendaraan ${vehicleNoPolisi} masih dalam proses perbaikan dan tidak dapat mengakhiri pekerjaan.`);
               setLoading(false);
               setScanResult('error');
               return;

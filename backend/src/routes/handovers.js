@@ -9,6 +9,22 @@ const optimizeImages = require('../middleware/imageOptimizer');
 const { submitHandoverSchema } = require('../validators/schemas');
 const { sendNotification, sendAmtComplianceNotification } = require('../services/notificationService');
 const scanTokenService = require('../services/scanTokenService');
+const { reconcileVehicleOperationalStatus } = require('../services/vehicleStatusService');
+
+const normalizeName = (name) => {
+  if (!name) return '';
+  return name.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+};
+
+const isNameMatch = (targetName, currentUserName) => {
+  if (!targetName || !currentUserName) return false;
+  const n1 = normalizeName(targetName);
+  const n2 = normalizeName(currentUserName);
+  if (n1 === n2) return true;
+  const parts1 = n1.split(' ').filter(p => p.length > 2);
+  const parts2 = n2.split(' ').filter(p => p.length > 2);
+  return parts1.some(p => parts2.includes(p));
+};
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -49,7 +65,10 @@ router.get('/my-active', authenticateToken, async (req, res) => {
 
     const lastHandover = await prisma.handover.findFirst({
       where: { OR: conditions },
-      orderBy: { timestamp: 'desc' },
+      orderBy: [
+        { timestamp: 'desc' },
+        { createdAt: 'desc' }
+      ],
       include: { issue: true, items: true }
     });
 
@@ -64,8 +83,18 @@ router.get('/my-active', authenticateToken, async (req, res) => {
       where: {
         noPolisi: lastHandover.noPolisi,
         type: 'akhiri',
-        timestamp: { gt: lastHandover.timestamp }
-      }
+        OR: [
+          { timestamp: { gt: lastHandover.timestamp } },
+          {
+            timestamp: lastHandover.timestamp,
+            createdAt: { gt: lastHandover.createdAt }
+          }
+        ]
+      },
+      orderBy: [
+        { timestamp: 'desc' },
+        { createdAt: 'desc' }
+      ]
     });
 
     if (subsequentAkhiri) {
@@ -196,23 +225,31 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
       return true;
     });
 
-    // Validasi dua lapis untuk State Machine Kendaraan
-    const vehicle = await prisma.vehicle.findUnique({
-      where: { noPolisi }
-    });
+    // Validasi dua lapis untuk State Machine Kendaraan dengan sinkronisasi terpusat
+    const {
+      vehicle: reconciledVehicle,
+      lastHandover,
+      hasActiveMajorIssue
+    } = await reconcileVehicleOperationalStatus(noPolisi);
 
-    if (!vehicle) {
+    if (!reconciledVehicle) {
       return res.status(404).json({ error: 'Kendaraan tidak ditemukan' });
     }
 
-    const lastHandover = await prisma.handover.findFirst({
-      where: { noPolisi },
-      orderBy: { timestamp: 'desc' },
-      include: { issue: true }
-    });
-
     if (type === 'mulai') {
-      if (vehicle.status !== 'READY_TO_START') {
+      if (hasActiveMajorIssue || reconciledVehicle.status === 'Maintenance') {
+        return res.status(409).json({
+          error: 'Kendaraan sedang dalam perbaikan (Maintenance) dan belum siap untuk Mulai Pekerjaan.'
+        });
+      }
+
+      if (lastHandover && lastHandover.type === 'mulai') {
+        return res.status(409).json({
+          error: 'Kendaraan masih memiliki pekerjaan aktif atau belum siap untuk Mulai Pekerjaan.'
+        });
+      }
+
+      if (reconciledVehicle.status !== 'READY_TO_START') {
         return res.status(409).json({
           error: 'Kendaraan masih memiliki pekerjaan aktif atau belum siap untuk Mulai Pekerjaan.'
         });
@@ -223,11 +260,23 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
       if (
         !lastHandover ||
         lastHandover.type !== 'mulai' ||
-        vehicle.status !== 'Active'
+        reconciledVehicle.status !== 'Active'
       ) {
         return res.status(409).json({
           error: 'Kendaraan belum memiliki pekerjaan aktif yang dapat diakhiri.'
         });
+      }
+
+      // Validasi kecocokan kru AMT untuk user bertipe AMT/USER (bukan Admin/Pengawas)
+      if (!isAdminOrPengawas) {
+        const isAmt1 = isNameMatch(lastHandover.amt1, existingUser.name);
+        const isAmt2 = isNameMatch(lastHandover.amt2, existingUser.name);
+        const isCreator = String(lastHandover.userId) === String(userId);
+        if (!isAmt1 && !isAmt2 && !isCreator) {
+          return res.status(403).json({
+            error: `Pekerjaan kendaraan ini dimulai oleh kru:\n• AMT 1: ${lastHandover.amt1 || '-'}\n• AMT 2: ${lastHandover.amt2 || '-'}\n\nHanya petugas AMT yang memulai perjalanan ini yang dapat mengakhiri pekerjaan.`
+          });
+        }
       }
     }
 
@@ -369,7 +418,10 @@ router.post('/force-release', authenticateToken, async (req, res) => {
 
     const lastHandover = await prisma.handover.findFirst({
       where: { noPolisi },
-      orderBy: { timestamp: 'desc' },
+      orderBy: [
+        { timestamp: 'desc' },
+        { createdAt: 'desc' }
+      ],
       include: { issue: true }
     });
 

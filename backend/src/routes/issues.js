@@ -4,6 +4,7 @@ const multer = require('multer');
 const prisma = require('../config/prisma');
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const optimizeImages = require('../middleware/imageOptimizer');
+const { reconcileVehicleOperationalStatus } = require('../services/vehicleStatusService');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -137,25 +138,7 @@ router.put('/:id/resolve', authenticateToken, authorizeRole(['ADMIN', 'SUPER_ADM
     });
 
     if (target.handover?.noPolisi) {
-      const otherOngoing = await prisma.issue.findFirst({
-        where: {
-          id: { not: target.id },
-          status: { in: ['ONGOING', 'PENDING_APPROVAL'] },
-          handover: { noPolisi: target.handover.noPolisi }
-        }
-      });
-      if (!otherOngoing) {
-        const vehicle = await prisma.vehicle.findUnique({
-          where: { noPolisi: target.handover.noPolisi },
-          select: { status: true }
-        });
-        if (vehicle && vehicle.status === 'Maintenance') {
-          await prisma.vehicle.update({
-            where: { noPolisi: target.handover.noPolisi },
-            data: { status: 'READY_TO_START' }
-          });
-        }
-      }
+      await reconcileVehicleOperationalStatus(target.handover.noPolisi);
     }
 
     res.json({ success: true, issue: updatedIssue });
