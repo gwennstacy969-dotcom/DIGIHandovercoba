@@ -346,4 +346,148 @@ describe('SUPER_ADMIN, Single Active Session & RBAC Regression Test Suite', () =
       expect(res.body.error).toMatch(/Maintenance/i);
     });
   });
+  describe('5. Patch Q: Administrator Role Management, Instant Logout, & API Contract', () => {
+    let saToken;
+    let createdAdminId;
+    let createdSuperAdminId;
+
+    beforeAll(async () => {
+      // Clear any previous session and login as superAdminUser
+      await prisma.user.update({
+        where: { id: superAdminUser.id },
+        data: { activeSessionId: null, sessionStartedAt: null, sessionLastActivityAt: null, sessionExpiresAt: null }
+      });
+      const loginRes = await request(app)
+        .post('/api/auth/login')
+        .send({ username: superAdminUser.username, password: rawPassword });
+      saToken = loginRes.body.token;
+    });
+
+    afterAll(async () => {
+      if (saToken) {
+        await request(app).post('/api/auth/logout').set('Authorization', `Bearer ${saToken}`).send();
+      }
+      if (createdAdminId) {
+        await prisma.user.deleteMany({ where: { id: createdAdminId } });
+      }
+      if (createdSuperAdminId) {
+        await prisma.user.deleteMany({ where: { id: createdSuperAdminId } });
+      }
+    });
+
+    test('Super Admin dapat membuat akun baru dengan role ADMIN', async () => {
+      const res = await request(app)
+        .post('/api/admins')
+        .set('Authorization', `Bearer ${saToken}`)
+        .send({
+          name: `New Admin ${testId}`,
+          username: `new_adm_${testId}`,
+          password: 'Password123!',
+          role: 'ADMIN',
+          jabatan: 'Admin Operasional'
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.admin.role).toBe('ADMIN');
+      createdAdminId = res.body.admin.id;
+    });
+
+    test('Super Admin dapat membuat akun baru dengan role SUPER_ADMIN', async () => {
+      const res = await request(app)
+        .post('/api/admins')
+        .set('Authorization', `Bearer ${saToken}`)
+        .send({
+          name: `New Super Admin ${testId}`,
+          username: `new_sa_${testId}`,
+          password: 'PasswordSuper123!',
+          role: 'SUPER_ADMIN',
+          jabatan: 'Super Admin Regional'
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.admin.role).toBe('SUPER_ADMIN');
+      createdSuperAdminId = res.body.admin.id;
+    });
+
+    test('Super Admin dapat mempromosikan ADMIN menjadi SUPER_ADMIN via PUT /api/admins/:id', async () => {
+      const res = await request(app)
+        .put(`/api/admins/${createdAdminId}`)
+        .set('Authorization', `Bearer ${saToken}`)
+        .send({ role: 'SUPER_ADMIN' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.admin.role).toBe('SUPER_ADMIN');
+    });
+
+    test('Menolak pembuatan admin baru tanpa password (tidak ada default hard-coded admin123)', async () => {
+      const res = await request(app)
+        .post('/api/admins')
+        .set('Authorization', `Bearer ${saToken}`)
+        .send({
+          name: 'No Pass Admin',
+          username: `nopass_${testId}`,
+          password: '',
+          role: 'ADMIN'
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/password/i);
+    });
+
+    test('Logout manual seketika melepas sesi server sehingga perangkat lain langsung bisa login', async () => {
+      // 1. Login user
+      const userRes1 = await request(app)
+        .post('/api/auth/login')
+        .send({ username: `new_sa_${testId}`, password: 'PasswordSuper123!' });
+      expect(userRes1.status).toBe(200);
+      const userToken = userRes1.body.token;
+
+      // 2. Login perangkat kedua ditolak 409
+      const userResConflict = await request(app)
+        .post('/api/auth/login')
+        .send({ username: `new_sa_${testId}`, password: 'PasswordSuper123!' });
+      expect(userResConflict.status).toBe(409);
+
+      // 3. User melakukan logout dari perangkat pertama
+      const logoutRes = await request(app)
+        .post('/api/auth/logout')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send();
+      expect(logoutRes.status).toBe(200);
+
+      // 4. Perangkat kedua langsung berhasil login tanpa menunggu idle timeout
+      const userRes2 = await request(app)
+        .post('/api/auth/login')
+        .send({ username: `new_sa_${testId}`, password: 'PasswordSuper123!' });
+      expect(userRes2.status).toBe(200);
+      expect(userRes2.body.success).toBe(true);
+
+      // Cleanup
+      await request(app)
+        .post('/api/auth/logout')
+        .set('Authorization', `Bearer ${userRes2.body.token}`)
+        .send();
+    });
+
+    test('Kontrak API GET /api/auth/session/status mengembalikan field level teratas dan objek session', async () => {
+      const res = await request(app)
+        .get('/api/auth/session/status')
+        .set('Authorization', `Bearer ${saToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      // Top-level properties
+      expect(res.body.remainingIdleMs).toBeDefined();
+      expect(res.body.remainingAbsoluteMs).toBeDefined();
+      expect(res.body.idleTimeoutMs).toBeDefined();
+      // Session object contract for SessionManager.js
+      expect(res.body.session).toBeDefined();
+      expect(res.body.session.remainingIdleSeconds).toBeDefined();
+      expect(res.body.session.remainingAbsoluteSeconds).toBeDefined();
+      expect(res.body.session.isExpired).toBe(false);
+    });
+  });
 });

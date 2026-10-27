@@ -222,7 +222,10 @@ router.post('/logout', authenticateToken, async (req, res, next) => {
         where: { id: userId },
         data: {
           activeSessionId: null,
-          refreshToken: null
+          refreshToken: null,
+          sessionStartedAt: null,
+          sessionLastActivityAt: null,
+          sessionExpiresAt: null
         }
       });
     }
@@ -262,7 +265,12 @@ router.post('/session/activity', authenticateToken, async (req, res, next) => {
     res.json({
       success: true,
       remainingIdleMs: result.remainingIdleMs,
-      remainingAbsoluteMs: result.remainingAbsoluteMs
+      remainingAbsoluteMs: result.remainingAbsoluteMs,
+      session: {
+        remainingIdleSeconds: Math.max(0, Math.floor(result.remainingIdleMs / 1000)),
+        remainingAbsoluteSeconds: Math.max(0, Math.floor(result.remainingAbsoluteMs / 1000)),
+        isExpired: false
+      }
     });
   } catch (error) {
     next(error);
@@ -284,7 +292,12 @@ router.get('/session/status', authenticateToken, async (req, res, next) => {
       success: true,
       remainingIdleMs: status.remainingIdleMs,
       remainingAbsoluteMs: status.remainingAbsoluteMs,
-      idleTimeoutMs: status.idleTimeoutMs
+      idleTimeoutMs: status.idleTimeoutMs,
+      session: {
+        remainingIdleSeconds: Math.max(0, Math.floor(status.remainingIdleMs / 1000)),
+        remainingAbsoluteSeconds: Math.max(0, Math.floor(status.remainingAbsoluteMs / 1000)),
+        isExpired: false
+      }
     });
   } catch (error) {
     next(error);

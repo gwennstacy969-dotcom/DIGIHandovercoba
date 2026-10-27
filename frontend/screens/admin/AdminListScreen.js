@@ -247,11 +247,21 @@ export default function AdminListScreen({ navigation }) {
             </View>
             <Text style={tw`text-xs font-bold text-gray-500 mb-1.5`}>@{item.username} • {item.jabatan || 'Administrator'}</Text>
             <View style={tw`flex-row items-center`}>
-              <View style={tw`px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200`}>
-                <Text style={tw`text-[11px] font-extrabold text-blue-700`}>
-                  ADMIN (AKSES PENUH)
-                </Text>
-              </View>
+              {item.role === 'SUPER_ADMIN' ? (
+                <View style={tw`px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-300 flex-row items-center`}>
+                  <Feather name="award" size={11} color="#B45309" style={tw`mr-1`} />
+                  <Text style={tw`text-[11px] font-extrabold text-amber-700`}>
+                    SUPER ADMIN (OTORITAS TINGGI)
+                  </Text>
+                </View>
+              ) : (
+                <View style={tw`px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200 flex-row items-center`}>
+                  <Feather name="shield" size={11} color="#0055A5" style={tw`mr-1`} />
+                  <Text style={tw`text-[11px] font-extrabold text-blue-700`}>
+                    ADMIN (OPERASIONAL)
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -376,7 +386,11 @@ export default function AdminListScreen({ navigation }) {
             <View style={tw`bg-white rounded-[30px] p-6 shadow-2xl w-full mx-auto max-h-[90%]`}>
               <View style={tw`flex-row justify-between items-start mb-6`}>
                 <View style={tw`flex-1 mr-3`}>
-                  <Text style={tw`text-2xl font-black text-gray-800`}>{selectedAdmin ? 'Ubah Data Admin' : 'Tambah Admin Baru'}</Text>
+                  <Text style={tw`text-2xl font-black text-gray-800`}>
+                    {selectedAdmin 
+                      ? 'Ubah Data Administrator' 
+                      : (role === 'SUPER_ADMIN' ? 'Tambah Super Admin' : 'Tambah Admin Baru')}
+                  </Text>
                   <Text style={tw`text-xs font-bold text-gray-500 mt-1`}>Akses pengawasan dan konfigurasi sistem</Text>
                 </View>
                 <TouchableOpacity
@@ -418,16 +432,47 @@ export default function AdminListScreen({ navigation }) {
                 </View>
 
                 <View style={tw`mb-4`}>
-                  <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>Hak Akses Sistem</Text>
-                  <View style={tw`p-3.5 bg-blue-50 border border-blue-200 rounded-xl flex-row items-center`}>
-                    <View style={tw`w-10 h-10 bg-blue-100 rounded-xl items-center justify-center mr-3`}>
-                      <Feather name="shield" size={20} color="#0055A5" />
-                    </View>
-                    <View style={tw`flex-1`}>
-                      <Text style={tw`font-extrabold text-[#0055A5] text-sm`}>ADMINISTRATOR</Text>
-                      <Text style={tw`text-[11px] text-blue-800 mt-0.5`}>Akses penuh ke seluruh modul, armada, dan manajemen sistem.</Text>
-                    </View>
+                  <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>Pilih Role & Hak Akses</Text>
+                  <View style={tw`flex-row gap-3`}>
+                    <TouchableOpacity
+                      onPress={() => setRole('ADMIN')}
+                      style={[
+                        tw`flex-1 p-3.5 rounded-xl border flex-row items-center`,
+                        role === 'ADMIN' ? tw`bg-blue-50 border-[#0055A5]` : tw`bg-slate-50 border-slate-200`
+                      ]}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[tw`w-8 h-8 rounded-lg items-center justify-center mr-2.5`, role === 'ADMIN' ? tw`bg-blue-100` : tw`bg-gray-200`]}>
+                        <Feather name="shield" size={16} color={role === 'ADMIN' ? '#0055A5' : '#64748B'} />
+                      </View>
+                      <View style={tw`flex-1`}>
+                        <Text style={[tw`font-extrabold text-xs`, role === 'ADMIN' ? tw`text-[#0055A5]` : tw`text-gray-700`]}>ADMIN</Text>
+                        <Text style={tw`text-[10px] text-gray-500 mt-0.5`} numberOfLines={1}>Operasional</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => setRole('SUPER_ADMIN')}
+                      style={[
+                        tw`flex-1 p-3.5 rounded-xl border flex-row items-center`,
+                        role === 'SUPER_ADMIN' ? tw`bg-amber-50 border-amber-500` : tw`bg-slate-50 border-slate-200`
+                      ]}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[tw`w-8 h-8 rounded-lg items-center justify-center mr-2.5`, role === 'SUPER_ADMIN' ? tw`bg-amber-100` : tw`bg-gray-200`]}>
+                        <Feather name="award" size={16} color={role === 'SUPER_ADMIN' ? '#D97706' : '#64748B'} />
+                      </View>
+                      <View style={tw`flex-1`}>
+                        <Text style={[tw`font-extrabold text-xs`, role === 'SUPER_ADMIN' ? tw`text-amber-700` : tw`text-gray-700`]}>SUPER ADMIN</Text>
+                        <Text style={tw`text-[10px] text-gray-500 mt-0.5`} numberOfLines={1}>Akses Penuh</Text>
+                      </View>
+                    </TouchableOpacity>
                   </View>
+                  <Text style={tw`text-[11px] text-gray-500 mt-1.5`}>
+                    {role === 'SUPER_ADMIN'
+                      ? '⭐ Super Admin dapat mengelola akun Admin, melihat Audit Log, dan mencabut Sesi Aktif.'
+                      : '🔹 Admin mengelola kendaraan, checklist, data AMT & Pengawas, serta laporan operasional.'}
+                  </Text>
                 </View>
 
                 <View style={tw`mb-4`}>
@@ -465,7 +510,7 @@ export default function AdminListScreen({ navigation }) {
                         style={tw`flex-1 bg-red-100 p-4 rounded-xl mr-2 items-center`}
                         onPress={handleDeleteAdmin}
                       >
-                        <Text style={tw`text-red-700 font-bold`}>Hapus Admin</Text>
+                        <Text style={tw`text-red-700 font-bold`}>{selectedAdmin?.role === 'SUPER_ADMIN' ? 'Hapus Super Admin' : 'Hapus Admin'}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={tw`flex-1 bg-[#0055A5] p-4 rounded-xl ml-2 items-center shadow-lg shadow-blue-500/40`}
@@ -479,7 +524,7 @@ export default function AdminListScreen({ navigation }) {
                       style={tw`flex-1 bg-[#0055A5] p-4 rounded-xl items-center shadow-lg shadow-blue-500/40`}
                       onPress={handleSaveAdmin}
                     >
-                      <Text style={tw`text-white font-black text-lg tracking-wide`}>SIMPAN ADMIN BARU</Text>
+                      <Text style={tw`text-white font-black text-base tracking-wide`}>{role === 'SUPER_ADMIN' ? 'SIMPAN SUPER ADMIN' : 'SIMPAN ADMIN BARU'}</Text>
                     </TouchableOpacity>
                   )}
                 </View>

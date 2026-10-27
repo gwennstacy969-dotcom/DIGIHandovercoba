@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_URL } from '../config';
+import { handleLogoutAndReset } from '../utils/authHelper';
 
 const WARNING_THRESHOLD_SECONDS = 120; // 2 menit sebelum timeout
 const PING_THROTTLE_MS = 30000; // Minimal 30 detik antar ping aktivitas
@@ -17,32 +18,14 @@ export default function SessionManager({ navigationRef }) {
   const checkIntervalRef = useRef(null);
   const countdownIntervalRef = useRef(null);
 
-  // Logout dan bersihkan sesi
+  // Logout dan bersihkan sesi secara terpusat
   const performLogout = useCallback(async (reasonMessage = 'Sesi Anda telah berakhir. Silakan login kembali.') => {
     try {
       setShowWarningModal(false);
       if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
 
-      const token = await AsyncStorage.getItem('token');
-      if (token) {
-        try {
-          await axios.post(`${API_URL}/api/auth/logout`, {}, {
-            headers: { Authorization: `Bearer ${token}` },
-            timeout: 5000
-          });
-        } catch (_) {}
-      }
-
-      await AsyncStorage.multiRemove(['user', 'token', 'refreshToken']);
-      delete axios.defaults.headers.common['Authorization'];
-
-      if (navigationRef?.isReady()) {
-        navigationRef.reset({
-          index: 0,
-          routes: [{ name: 'Login', params: { sessionExpiredMessage: reasonMessage } }]
-        });
-      }
+      await handleLogoutAndReset(navigationRef, reasonMessage);
     } catch (err) {
       console.log('Error during auto-logout:', err.message);
     }
@@ -59,7 +42,8 @@ export default function SessionManager({ navigationRef }) {
       if (!token) return;
 
       await axios.post(`${API_URL}/api/auth/session/activity`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 5000
       });
       // Jika warning modal sedang aktif, tutup setelah ping berhasil
       setShowWarningModal(false);
@@ -69,6 +53,14 @@ export default function SessionManager({ navigationRef }) {
       }
     }
   }, [performLogout]);
+
+  // Daftarkan handler statis untuk touch capture lintas platform
+  useEffect(() => {
+    SessionManager.recordActivity = sendActivityPing;
+    return () => {
+      SessionManager.recordActivity = null;
+    };
+  }, [sendActivityPing]);
 
   // Periksa status sesi ke backend tanpa mereset idle timer
   const checkSessionStatus = useCallback(async () => {
@@ -81,7 +73,8 @@ export default function SessionManager({ navigationRef }) {
       }
 
       const res = await axios.get(`${API_URL}/api/auth/session/status`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 6000
       });
 
       if (!res.data?.success) {
@@ -89,7 +82,17 @@ export default function SessionManager({ navigationRef }) {
         return;
       }
 
-      const { remainingIdleSeconds, remainingAbsoluteSeconds, isExpired } = res.data.session;
+      // Mendukung kedua kontrak: res.data.session.* maupun top-level res.data.*
+      const rawSession = res.data.session;
+      const remainingIdleSeconds = rawSession?.remainingIdleSeconds !== undefined
+        ? rawSession.remainingIdleSeconds
+        : Math.max(0, Math.floor((res.data.remainingIdleMs || 0) / 1000));
+
+      const remainingAbsoluteSeconds = rawSession?.remainingAbsoluteSeconds !== undefined
+        ? rawSession.remainingAbsoluteSeconds
+        : Math.max(0, Math.floor((res.data.remainingAbsoluteMs || 0) / 1000));
+
+      const isExpired = rawSession?.isExpired || false;
 
       if (isExpired || remainingIdleSeconds <= 0 || remainingAbsoluteSeconds <= 0) {
         const msg = remainingAbsoluteSeconds <= 0
@@ -114,7 +117,7 @@ export default function SessionManager({ navigationRef }) {
     }
   }, [performLogout]);
 
-  // Setup event listeners untuk deteksi interaksi nyata pengguna
+  // Setup event listeners untuk deteksi interaksi nyata pengguna pada Web
   useEffect(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const handleUserEvent = () => {
@@ -135,7 +138,7 @@ export default function SessionManager({ navigationRef }) {
     } else {
       const subscription = AppState.addEventListener('change', (nextAppState) => {
         if (nextAppState === 'active') {
-          sendActivityPing();
+          // Hanya refresh status, tidak auto-extend activity tanpa touch
           checkSessionStatus();
         }
       });
@@ -248,4 +251,3 @@ export default function SessionManager({ navigationRef }) {
     </Modal>
   );
 }
-

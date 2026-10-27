@@ -6,8 +6,8 @@ const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const { userManageSchema } = require('../validators/schemas');
 const { revokeUserSessionByAdmin, isSessionLive } = require('../services/sessionService');
 
-// 1. GET All Admins (Khusus Super Admin & Admin)
-router.get('/', authenticateToken, authorizeRole(['ADMIN', 'SUPER_ADMIN']), async (req, res) => {
+// 1. GET All Admins (KHUSUS SUPER_ADMIN)
+router.get('/', authenticateToken, authorizeRole('SUPER_ADMIN'), async (req, res) => {
   try {
     const admins = await prisma.user.findMany({
       where: {
@@ -40,7 +40,17 @@ router.post('/', authenticateToken, authorizeRole('SUPER_ADMIN'), async (req, re
   try {
     const { error, value } = userManageSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.details[0].message });
-    const { name, username, password, jabatan } = value;
+    const { name, username, password, jabatan, role } = value;
+
+    // Role administrator hanya boleh 'ADMIN' atau 'SUPER_ADMIN'
+    const targetRole = role ? role.trim().toUpperCase() : 'ADMIN';
+    if (targetRole !== 'ADMIN' && targetRole !== 'SUPER_ADMIN') {
+      return res.status(400).json({ error: 'Role administrator hanya boleh ADMIN atau SUPER_ADMIN' });
+    }
+
+    if (!password || password.trim() === '') {
+      return res.status(400).json({ error: 'Password wajib diisi untuk akun administrator baru' });
+    }
 
     const existingUser = await prisma.user.findFirst({
       where: { username: username.trim(), deletedAt: null }
@@ -49,17 +59,15 @@ router.post('/', authenticateToken, authorizeRole('SUPER_ADMIN'), async (req, re
       return res.status(400).json({ error: 'Username sudah digunakan oleh akun lain' });
     }
 
-    // Role yang dibuat melalui modul ini selalu ADMIN biasa (SUPER_ADMIN tidak boleh dipilih publik/form biasa)
-    const rawPassword = password && password.trim() !== '' ? password : 'admin123';
-    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+    const hashedPassword = await bcrypt.hash(password.trim(), 10);
 
     const newAdmin = await prisma.user.create({
       data: {
-        name,
+        name: name.trim(),
         username: username.trim(),
         password: hashedPassword,
-        role: 'ADMIN',
-        jabatan: jabatan || 'Administrator Distribusi'
+        role: targetRole,
+        jabatan: jabatan ? jabatan.trim() : (targetRole === 'SUPER_ADMIN' ? 'Super Administrator' : 'Administrator Distribusi')
       },
       select: {
         id: true,
@@ -76,12 +84,13 @@ router.post('/', authenticateToken, authorizeRole('SUPER_ADMIN'), async (req, re
       await prisma.auditLog.create({
         data: {
           userId: req.user.id,
-          action: 'CREATE_ADMIN',
+          action: targetRole === 'SUPER_ADMIN' ? 'CREATE_SUPER_ADMIN' : 'CREATE_ADMIN',
           actionType: 'ADMIN_MANAGEMENT',
           actionId: newAdmin.id,
           details: JSON.stringify({
             createdAdminId: newAdmin.id,
             createdUsername: newAdmin.username,
+            createdRole: newAdmin.role,
             createdBy: req.user.username
           })
         }
@@ -98,7 +107,7 @@ router.post('/', authenticateToken, authorizeRole('SUPER_ADMIN'), async (req, re
 // ADMIN biasa DITOLAK (HTTP 403 Forbidden)
 router.put('/:id', authenticateToken, authorizeRole('SUPER_ADMIN'), async (req, res) => {
   try {
-    const { name, username, password, jabatan } = req.body;
+    const { name, username, password, jabatan, role } = req.body;
     const targetId = req.params.id;
 
     const existingAdmin = await prisma.user.findFirst({
@@ -106,6 +115,28 @@ router.put('/:id', authenticateToken, authorizeRole('SUPER_ADMIN'), async (req, 
     });
     if (!existingAdmin) {
       return res.status(404).json({ error: 'Data admin tidak ditemukan' });
+    }
+
+    // Validasi dan penyesuaian role
+    let newRole = existingAdmin.role;
+    if (role !== undefined && role !== null && role.trim() !== '') {
+      const cleanRole = role.trim().toUpperCase();
+      if (cleanRole !== 'ADMIN' && cleanRole !== 'SUPER_ADMIN') {
+        return res.status(400).json({ error: 'Role administrator hanya boleh ADMIN atau SUPER_ADMIN' });
+      }
+
+      // Perlindungan: Tidak boleh demosi Super Admin aktif terakhir menjadi Admin
+      if (existingAdmin.role === 'SUPER_ADMIN' && cleanRole === 'ADMIN') {
+        const superAdminsCount = await prisma.user.count({
+          where: { role: 'SUPER_ADMIN', deletedAt: null }
+        });
+        if (superAdminsCount <= 1) {
+          return res.status(400).json({
+            error: 'Tidak dapat menurunkan role Super Admin aktif terakhir menjadi Admin biasa. Sistem memerlukan minimal 1 Super Admin aktif.'
+          });
+        }
+      }
+      newRole = cleanRole;
     }
 
     // Jika username diubah, pastikan tidak duplikat dengan akun lain
@@ -121,12 +152,15 @@ router.put('/:id', authenticateToken, authorizeRole('SUPER_ADMIN'), async (req, 
     const updateData = {
       name: name ? name.trim() : existingAdmin.name,
       username: username ? username.trim() : existingAdmin.username,
-      jabatan: jabatan !== undefined ? jabatan : existingAdmin.jabatan
+      role: newRole,
+      jabatan: jabatan !== undefined ? (jabatan ? jabatan.trim() : null) : existingAdmin.jabatan
     };
 
+    let passwordChanged = false;
     // Update password jika diisi
     if (password && password.trim() !== '') {
       updateData.password = await bcrypt.hash(password.trim(), 10);
+      passwordChanged = true;
     }
 
     const updatedAdmin = await prisma.user.update({
@@ -142,6 +176,20 @@ router.put('/:id', authenticateToken, authorizeRole('SUPER_ADMIN'), async (req, 
       }
     });
 
+    // Jika role atau password diubah, cabut sesi aktif akun target agar perubahan efektif pada login berikutnya
+    if ((newRole !== existingAdmin.role) || passwordChanged) {
+      try {
+        await revokeUserSessionByAdmin(
+          targetId,
+          req.user.id,
+          `Kredensial atau wewenang akun diperbarui oleh Super Admin (${req.user.username})`,
+          prisma
+        );
+      } catch (revokeErr) {
+        console.warn('Non-critical: error revoking session on admin update:', revokeErr.message);
+      }
+    }
+
     // Catat ke AuditLog
     try {
       await prisma.auditLog.create({
@@ -153,6 +201,9 @@ router.put('/:id', authenticateToken, authorizeRole('SUPER_ADMIN'), async (req, 
           details: JSON.stringify({
             targetId,
             targetUsername: updatedAdmin.username,
+            oldRole: existingAdmin.role,
+            newRole: updatedAdmin.role,
+            passwordChanged,
             updatedBy: req.user.username
           })
         }
@@ -205,7 +256,17 @@ router.delete('/:id', authenticateToken, authorizeRole('SUPER_ADMIN'), async (re
       });
     }
 
-    // Soft delete & bersihkan sesi aktif pengguna target
+    // Cabut sesi aktif akun target terlebih dahulu
+    try {
+      await revokeUserSessionByAdmin(
+        targetId,
+        req.user.id,
+        `Akun dinonaktifkan oleh Super Admin (${req.user.username})`,
+        prisma
+      );
+    } catch (_) {}
+
+    // Soft delete
     await prisma.user.update({
       where: { id: targetId },
       data: {

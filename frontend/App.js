@@ -293,36 +293,44 @@ export default function App() {
           </Animated.View>
         </View>
       ) : (
-        <NavigationContainer ref={navigationRef}>
-          <SessionManager navigationRef={navigationRef} />
-          <Stack.Navigator
-            initialRouteName={initialRoute}
-            screenOptions={{
-              headerShown: false,
-              animation: Platform.OS === 'web' ? 'none' : 'fade_from_bottom', // Instant on web, smooth transition on mobile
-            }}
-          >
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
-            <Stack.Screen name="PengawasDashboard" component={PengawasDashboardScreen} />
-            <Stack.Screen name="UserDashboard" component={UserDashboardScreen} />
-            <Stack.Screen name="Scanner" component={ScannerScreen} />
-            <Stack.Screen name="HandoverForm" component={HandoverFormScreen} />
-            <Stack.Screen name="FixVerification" component={FixVerificationScreen} />
-            <Stack.Screen name="History" component={HistoryScreen} />
-            <Stack.Screen name="HandoverDetail" component={HandoverDetailScreen} />
-            <Stack.Screen name="VehicleList" component={VehicleListScreen} />
-            <Stack.Screen name="IssueList" component={IssueListScreen} />
-            <Stack.Screen name="IssueDetail" component={IssueDetailScreen} />
-            <Stack.Screen name="MessageCenter" component={MessageCenterScreen} />
-            <Stack.Screen name="ChecklistManager" component={ChecklistManagerScreen} />
-            <Stack.Screen name="WorkerList" component={WorkerListScreen} />
-            <Stack.Screen name="PengawasList" component={PengawasListScreen} />
-            <Stack.Screen name="AdminList" component={AdminListScreen} />
-            <Stack.Screen name="AuditLog" component={AuditLogScreen} />
-            <Stack.Screen name="ActiveSessions" component={ActiveSessionsScreen} />
-          </Stack.Navigator>
-        </NavigationContainer>
+        <View
+          style={{ flex: 1 }}
+          onStartShouldSetResponderCapture={() => {
+            SessionManager.recordActivity?.();
+            return false;
+          }}
+        >
+          <NavigationContainer ref={navigationRef}>
+            <SessionManager navigationRef={navigationRef} />
+            <Stack.Navigator
+              initialRouteName={initialRoute}
+              screenOptions={{
+                headerShown: false,
+                animation: Platform.OS === 'web' ? 'none' : 'fade_from_bottom', // Instant on web, smooth transition on mobile
+              }}
+            >
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+              <Stack.Screen name="PengawasDashboard" component={PengawasDashboardScreen} />
+              <Stack.Screen name="UserDashboard" component={UserDashboardScreen} />
+              <Stack.Screen name="Scanner" component={ScannerScreen} />
+              <Stack.Screen name="HandoverForm" component={HandoverFormScreen} />
+              <Stack.Screen name="FixVerification" component={FixVerificationScreen} />
+              <Stack.Screen name="History" component={HistoryScreen} />
+              <Stack.Screen name="HandoverDetail" component={HandoverDetailScreen} />
+              <Stack.Screen name="VehicleList" component={VehicleListScreen} />
+              <Stack.Screen name="IssueList" component={IssueListScreen} />
+              <Stack.Screen name="IssueDetail" component={IssueDetailScreen} />
+              <Stack.Screen name="MessageCenter" component={MessageCenterScreen} />
+              <Stack.Screen name="ChecklistManager" component={ChecklistManagerScreen} />
+              <Stack.Screen name="WorkerList" component={WorkerListScreen} />
+              <Stack.Screen name="PengawasList" component={PengawasListScreen} />
+              <Stack.Screen name="AdminList" component={AdminListScreen} />
+              <Stack.Screen name="AuditLog" component={AuditLogScreen} />
+              <Stack.Screen name="ActiveSessions" component={ActiveSessionsScreen} />
+            </Stack.Navigator>
+          </NavigationContainer>
+        </View>
       )}
       <Toast config={toastConfig} position="top" topOffset={50} />
     </SafeAreaProvider>
