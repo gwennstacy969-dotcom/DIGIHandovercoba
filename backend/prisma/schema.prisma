@@ -135,6 +135,10 @@ model User {
   refreshToken String? @db.Text
   fcmToken     String?
   deletedAt    DateTime?
+  activeSessionId       String?   @db.VarChar(100)
+  sessionStartedAt      DateTime?
+  sessionLastActivityAt DateTime?
+  sessionExpiresAt      DateTime?
 
   handovers Handover[]
   amtIssues AmtIssue[]
@@ -153,8 +157,10 @@ model Vehicle {
   jenisKendaraan String?
   kapasitas      Int?
   brand          String?
-  status         String   @default("READY_TO_START")
-  createdAt      DateTime @default(now())
+  status              String   @default("READY_TO_START")
+  isManualMaintenance Boolean  @default(false)
+  maintenanceReason   String?  @db.Text
+  createdAt           DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@map("vehicle")

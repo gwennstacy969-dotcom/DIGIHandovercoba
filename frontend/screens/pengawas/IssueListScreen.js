@@ -106,13 +106,13 @@ export default function IssueListScreen({ navigation, route }) {
 
   useEffect(() => {
     Animated.loop(Animated.sequence([
-      Animated.timing(orb1TranslateY, { toValue: -50, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      Animated.timing(orb1TranslateY, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+      Animated.timing(orb1TranslateY, { toValue: -50, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(orb1TranslateY, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' })
     ])).start();
 
     Animated.loop(Animated.sequence([
-      Animated.timing(orb2TranslateY, { toValue: 60, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      Animated.timing(orb2TranslateY, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+      Animated.timing(orb2TranslateY, { toValue: 60, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(orb2TranslateY, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' })
     ])).start();
 
     const loadData = async () => {
@@ -171,13 +171,18 @@ export default function IssueListScreen({ navigation, route }) {
     setFilteredAmtIssues(filtered);
   }, [searchQuery, amtIssues]);
 
+  const isFetchingIssuesRef = React.useRef(false);
+  const isFetchingAmtIssuesRef = React.useRef(false);
+
   const fetchIssues = async () => {
+    if (isFetchingIssuesRef.current) return;
+    isFetchingIssuesRef.current = true;
     setLoading(true);
     try {
       const endpoint = issueFilter === 'current' ? `${API_BASE}/issues/ongoing` : `${API_BASE}/issues/`;
       const res = await axios.get(endpoint);
 
-      const fetchedIssues = res.data
+      const fetchedIssues = (res.data || [])
         .map(issue => ({
           ...issue.handover,
           issueId: issue.id,
@@ -191,13 +196,16 @@ export default function IssueListScreen({ navigation, route }) {
 
       setIssues(fetchedIssues);
     } catch (error) {
-      console.error(error);
+      console.log('[ISSUES] fetchIssues:', error.friendlyMessage || error.message);
     } finally {
+      isFetchingIssuesRef.current = false;
       setLoading(false);
     }
   };
 
   const fetchAmtIssues = async () => {
+    if (isFetchingAmtIssuesRef.current) return;
+    isFetchingAmtIssuesRef.current = true;
     setLoading(true);
     try {
       const token = await AsyncStorage.getItem('token');
@@ -206,8 +214,9 @@ export default function IssueListScreen({ navigation, route }) {
       const res = await axios.get(endpoint, { headers });
       setAmtIssues(res.data || []);
     } catch (error) {
-      console.error('Error fetchAmtIssues:', error);
+      console.log('[ISSUES] fetchAmtIssues:', error.friendlyMessage || error.message);
     } finally {
+      isFetchingAmtIssuesRef.current = false;
       setLoading(false);
     }
   };

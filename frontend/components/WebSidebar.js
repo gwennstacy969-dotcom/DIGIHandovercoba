@@ -7,7 +7,8 @@ import axios from 'axios';
 import { API_URL } from '../config';
 
 export default function WebSidebar({ user, activeMenu, navigation, handleLogout, unreadNotificationsCount = 0 }) {
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isAdmin = user?.role === 'ADMIN' || isSuperAdmin;
   const isManagement = isAdmin;
   const isPengawas = user?.role === 'PENGAWAS';
 
@@ -17,9 +18,18 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
     setInternalUnreadCount(unreadNotificationsCount);
   }, [unreadNotificationsCount]);
 
+  const isFetchingRef = useRef(false);
+  const lastFetchRef = useRef(0);
+
   useEffect(() => {
     let isMounted = true;
     const fetchUnread = async () => {
+      if (isFetchingRef.current) return;
+      const now = Date.now();
+      if (now - lastFetchRef.current < 15000) return; // Throttle minimal 15 detik
+      lastFetchRef.current = now;
+      isFetchingRef.current = true;
+
       try {
         const token = await AsyncStorage.getItem('token');
         if (!token) return;
@@ -30,11 +40,15 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
            setInternalUnreadCount(res.data.notifications.filter(n => !n.isRead).length);
         }
       } catch (error) {
-         console.log('Sidebar notification error:', error.message);
+        if (__DEV__) {
+          console.log('[SIDEBAR] Notifikasi:', error.friendlyMessage || error.message);
+        }
+      } finally {
+        isFetchingRef.current = false;
       }
     };
     
-    if (user) {
+    if (user && (unreadNotificationsCount === undefined || unreadNotificationsCount === 0)) {
       fetchUnread();
     }
     
@@ -49,7 +63,7 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
        isMounted = false;
        if (unsubscribe) unsubscribe();
     };
-  }, [user, navigation]);
+  }, [user, navigation, unreadNotificationsCount]);
 
   // Baca posisi scroll terakhir dari sessionStorage agar sidebar tidak loncat ke atas
   const getSavedScrollY = () => {
@@ -148,7 +162,8 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
   if (Platform.OS !== 'web' || !user) return null;
 
   const getRoleLabel = () => {
-    if (isAdmin) return 'Admin';
+    if (isSuperAdmin) return 'Super Admin';
+    if (user?.role === 'ADMIN') return 'Admin';
     if (isPengawas) return 'Pengawas';
     return 'Awak Mobil Tangki';
   };
@@ -396,12 +411,28 @@ export default function WebSidebar({ user, activeMenu, navigation, handleLogout,
                 onPress: () => navigateTo('PengawasList')
               })}
 
-              {/* Daftar Admin (Khusus Admin) */}
-              {isManagement && renderMenuItem({
+              {/* Daftar Admin (Khusus Super Admin) */}
+              {isSuperAdmin && renderMenuItem({
                 label: 'Daftar Admin',
                 iconComponent: <Feather name="user-check" size={20} color={activeMenu === 'AdminList' ? '#FFFFFF' : '#0055A5'} />,
                 active: activeMenu === 'AdminList',
                 onPress: () => navigateTo('AdminList')
+              })}
+
+              {/* Sesi Aktif (Khusus Super Admin) */}
+              {isSuperAdmin && renderMenuItem({
+                label: 'Sesi Aktif',
+                iconComponent: <Feather name="shield" size={20} color={activeMenu === 'ActiveSessions' ? '#FFFFFF' : '#0055A5'} />,
+                active: activeMenu === 'ActiveSessions',
+                onPress: () => navigateTo('ActiveSessions')
+              })}
+
+              {/* Audit Log (Khusus Super Admin) */}
+              {isSuperAdmin && renderMenuItem({
+                label: 'Audit Log',
+                iconComponent: <Feather name="file-text" size={20} color={activeMenu === 'AuditLog' ? '#FFFFFF' : '#0055A5'} />,
+                active: activeMenu === 'AuditLog',
+                onPress: () => navigateTo('AuditLog')
               })}
             </>
           )}

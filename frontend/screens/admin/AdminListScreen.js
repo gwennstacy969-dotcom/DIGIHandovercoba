@@ -18,7 +18,7 @@ import { useSubpageBackHandler } from '../../hooks/useSubpageBackHandler';
 import { handleLogoutAndReset } from '../../utils/authHelper';
 
 export default function AdminListScreen({ navigation }) {
-  useRoleGuard(['SUPER_ADMIN', 'ADMIN']);
+  useRoleGuard(['SUPER_ADMIN']);
   const [admins, setAdmins] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [user, setUser] = useState(null);
@@ -71,18 +71,18 @@ export default function AdminListScreen({ navigation }) {
 
   useEffect(() => {
     Animated.loop(Animated.sequence([
-      Animated.timing(orb1TranslateY, { toValue: -50, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      Animated.timing(orb1TranslateY, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+      Animated.timing(orb1TranslateY, { toValue: -50, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(orb1TranslateY, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' })
     ])).start();
 
     Animated.loop(Animated.sequence([
-      Animated.timing(orb2TranslateY, { toValue: 60, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      Animated.timing(orb2TranslateY, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+      Animated.timing(orb2TranslateY, { toValue: 60, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(orb2TranslateY, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' })
     ])).start();
 
     Animated.loop(Animated.sequence([
-      Animated.timing(orb3TranslateY, { toValue: -70, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      Animated.timing(orb3TranslateY, { toValue: 0, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+      Animated.timing(orb3TranslateY, { toValue: -70, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(orb3TranslateY, { toValue: 0, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' })
     ])).start();
 
     const loadUserAndFetch = async () => {
@@ -113,8 +113,8 @@ export default function AdminListScreen({ navigation }) {
   const filteredAdmins = admins.filter((item) => {
     const searchLower = searchQuery.toLowerCase().trim();
     return item.name.toLowerCase().includes(searchLower) ||
-           item.username.toLowerCase().includes(searchLower) ||
-           (item.jabatan && item.jabatan.toLowerCase().includes(searchLower));
+      item.username.toLowerCase().includes(searchLower) ||
+      (item.jabatan && item.jabatan.toLowerCase().includes(searchLower));
   }).sort((a, b) => {
     if (sortBy === 'Nama') {
       return (a.name || '').localeCompare(b.name || '');
@@ -379,8 +379,8 @@ export default function AdminListScreen({ navigation }) {
                   <Text style={tw`text-2xl font-black text-gray-800`}>{selectedAdmin ? 'Ubah Data Admin' : 'Tambah Admin Baru'}</Text>
                   <Text style={tw`text-xs font-bold text-gray-500 mt-1`}>Akses pengawasan dan konfigurasi sistem</Text>
                 </View>
-                <TouchableOpacity 
-                  onPress={closeManageModal} 
+                <TouchableOpacity
+                  onPress={closeManageModal}
                   style={tw`w-9 h-9 bg-gray-100 rounded-full items-center justify-center shrink-0 mt-0.5`}
                   activeOpacity={0.7}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -389,101 +389,101 @@ export default function AdminListScreen({ navigation }) {
                 </TouchableOpacity>
               </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={tw`mb-4`}>
-                <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>Nama Lengkap</Text>
-                <TextInput
-                  style={tw`bg-slate-50 p-4 rounded-xl border border-slate-200 text-black font-bold`}
-                  placeholder="Masukkan nama lengkap"
-                  placeholderTextColor="#9CA3AF"
-                  value={name}
-                  onChangeText={setName}
-                  autoComplete="off"
-                />
-              </View>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={tw`mb-4`}>
+                  <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>Nama Lengkap</Text>
+                  <TextInput
+                    style={tw`bg-slate-50 p-4 rounded-xl border border-slate-200 text-black font-bold`}
+                    placeholder="Masukkan nama lengkap"
+                    placeholderTextColor="#9CA3AF"
+                    value={name}
+                    onChangeText={setName}
+                    autoComplete="off"
+                  />
+                </View>
 
-              <View style={tw`mb-4`}>
-                <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>Username (Untuk Login)</Text>
-                <TextInput
-                  style={tw`bg-slate-50 p-4 rounded-xl border border-slate-200 text-black font-bold`}
-                  placeholder="Masukkan username (tanpa spasi)"
-                  placeholderTextColor="#9CA3AF"
-                  value={username}
-                  onChangeText={setUsername}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="off"
-                  textContentType="none"
-                />
-              </View>
+                <View style={tw`mb-4`}>
+                  <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>Username (Untuk Login)</Text>
+                  <TextInput
+                    style={tw`bg-slate-50 p-4 rounded-xl border border-slate-200 text-black font-bold`}
+                    placeholder="Masukkan username (tanpa spasi)"
+                    placeholderTextColor="#9CA3AF"
+                    value={username}
+                    onChangeText={setUsername}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="off"
+                    textContentType="none"
+                  />
+                </View>
 
-              <View style={tw`mb-4`}>
-                <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>Hak Akses Sistem</Text>
-                <View style={tw`p-3.5 bg-blue-50 border border-blue-200 rounded-xl flex-row items-center`}>
-                  <View style={tw`w-10 h-10 bg-blue-100 rounded-xl items-center justify-center mr-3`}>
-                    <Feather name="shield" size={20} color="#0055A5" />
-                  </View>
-                  <View style={tw`flex-1`}>
-                    <Text style={tw`font-extrabold text-[#0055A5] text-sm`}>ADMINISTRATOR</Text>
-                    <Text style={tw`text-[11px] text-blue-800 mt-0.5`}>Akses penuh ke seluruh modul, armada, dan manajemen sistem.</Text>
+                <View style={tw`mb-4`}>
+                  <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>Hak Akses Sistem</Text>
+                  <View style={tw`p-3.5 bg-blue-50 border border-blue-200 rounded-xl flex-row items-center`}>
+                    <View style={tw`w-10 h-10 bg-blue-100 rounded-xl items-center justify-center mr-3`}>
+                      <Feather name="shield" size={20} color="#0055A5" />
+                    </View>
+                    <View style={tw`flex-1`}>
+                      <Text style={tw`font-extrabold text-[#0055A5] text-sm`}>ADMINISTRATOR</Text>
+                      <Text style={tw`text-[11px] text-blue-800 mt-0.5`}>Akses penuh ke seluruh modul, armada, dan manajemen sistem.</Text>
+                    </View>
                   </View>
                 </View>
-              </View>
 
-              <View style={tw`mb-4`}>
-                <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>Jabatan / Divisi</Text>
-                <TextInput
-                  style={tw`bg-slate-50 p-4 rounded-xl border border-slate-200 text-black font-bold`}
-                  placeholder="Contoh: Admin Distribusi / IT Terminal"
-                  placeholderTextColor="#9CA3AF"
-                  value={jabatan}
-                  onChangeText={setJabatan}
-                  autoComplete="off"
-                />
-              </View>
+                <View style={tw`mb-4`}>
+                  <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>Jabatan / Divisi</Text>
+                  <TextInput
+                    style={tw`bg-slate-50 p-4 rounded-xl border border-slate-200 text-black font-bold`}
+                    placeholder="Contoh: Admin Distribusi / IT Terminal"
+                    placeholderTextColor="#9CA3AF"
+                    value={jabatan}
+                    onChangeText={setJabatan}
+                    autoComplete="off"
+                  />
+                </View>
 
-              <View style={tw`mb-6`}>
-                <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>
-                  Password {selectedAdmin ? '(Kosongkan jika tidak ingin diubah)' : '(Wajib)'}
-                </Text>
-                <TextInput
-                  style={tw`bg-slate-50 p-4 rounded-xl border border-slate-200 text-black font-bold`}
-                  placeholder={selectedAdmin ? "Ketik sandi baru untuk mengganti" : "Ketik sandi akun baru"}
-                  placeholderTextColor="#9CA3AF"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  autoComplete="new-password"
-                  textContentType="newPassword"
-                />
-              </View>
+                <View style={tw`mb-6`}>
+                  <Text style={tw`text-xs font-bold text-gray-500 uppercase mb-2`}>
+                    Password {selectedAdmin ? '(Kosongkan jika tidak ingin diubah)' : '(Wajib)'}
+                  </Text>
+                  <TextInput
+                    style={tw`bg-slate-50 p-4 rounded-xl border border-slate-200 text-black font-bold`}
+                    placeholder={selectedAdmin ? "Ketik sandi baru untuk mengganti" : "Ketik sandi akun baru"}
+                    placeholderTextColor="#9CA3AF"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                    autoComplete="new-password"
+                    textContentType="newPassword"
+                  />
+                </View>
 
-              <View style={tw`flex-row justify-between w-full mb-6`}>
-                {selectedAdmin ? (
-                  <>
+                <View style={tw`flex-row justify-between w-full mb-6`}>
+                  {selectedAdmin ? (
+                    <>
+                      <TouchableOpacity
+                        style={tw`flex-1 bg-red-100 p-4 rounded-xl mr-2 items-center`}
+                        onPress={handleDeleteAdmin}
+                      >
+                        <Text style={tw`text-red-700 font-bold`}>Hapus Admin</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={tw`flex-1 bg-[#0055A5] p-4 rounded-xl ml-2 items-center shadow-lg shadow-blue-500/40`}
+                        onPress={handleSaveAdmin}
+                      >
+                        <Text style={tw`text-white font-bold`}>Simpan Perubahan</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
                     <TouchableOpacity
-                      style={tw`flex-1 bg-red-100 p-4 rounded-xl mr-2 items-center`}
-                      onPress={handleDeleteAdmin}
-                    >
-                      <Text style={tw`text-red-700 font-bold`}>Hapus Admin</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={tw`flex-1 bg-[#0055A5] p-4 rounded-xl ml-2 items-center shadow-lg shadow-blue-500/40`}
+                      style={tw`flex-1 bg-[#0055A5] p-4 rounded-xl items-center shadow-lg shadow-blue-500/40`}
                       onPress={handleSaveAdmin}
                     >
-                      <Text style={tw`text-white font-bold`}>Simpan Perubahan</Text>
+                      <Text style={tw`text-white font-black text-lg tracking-wide`}>SIMPAN ADMIN BARU</Text>
                     </TouchableOpacity>
-                  </>
-                ) : (
-                  <TouchableOpacity
-                    style={tw`flex-1 bg-[#0055A5] p-4 rounded-xl items-center shadow-lg shadow-blue-500/40`}
-                    onPress={handleSaveAdmin}
-                  >
-                    <Text style={tw`text-white font-black text-lg tracking-wide`}>SIMPAN ADMIN BARU</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </ScrollView>
+                  )}
+                </View>
+              </ScrollView>
             </View>
           </KeyboardAvoidingView>
         </View>
@@ -532,7 +532,7 @@ export default function AdminListScreen({ navigation }) {
           </View>
         </View>
       </Modal>
-      
+
       {/* Logout Modal */}
       <Modal
         visible={isLogoutVisible}

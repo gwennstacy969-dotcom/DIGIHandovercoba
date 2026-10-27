@@ -20,6 +20,7 @@ const GLASS_BG = 'rgba(255, 255, 255, 0.7)';
 
 // Helper untuk efek Glassmorphism di Web
 const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
+const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 
 import { useRoleGuard } from '../../hooks/useRoleGuard';
 import { useDashboardBackHandler } from '../../hooks/useDashboardBackHandler';
@@ -61,22 +62,22 @@ export default function AdminDashboardScreen({ navigation }) {
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim1, { toValue: 1, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(floatAnim1, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(floatAnim1, { toValue: 1, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(floatAnim1, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim2, { toValue: 1, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(floatAnim2, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(floatAnim2, { toValue: 1, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(floatAnim2, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim3, { toValue: 1, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(floatAnim3, { toValue: 0, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(floatAnim3, { toValue: 1, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(floatAnim3, { toValue: 0, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
 
@@ -85,14 +86,14 @@ export default function AdminDashboardScreen({ navigation }) {
         toValue: 1,
         duration: 2500,
         easing: Easing.linear,
-        useNativeDriver: true
+        useNativeDriver: USE_NATIVE_DRIVER
       })
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(slideAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(slideAnim, { toValue: 0, duration: 1500, easing: Easing.linear, useNativeDriver: true })
+        Animated.timing(slideAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 1500, easing: Easing.linear, useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
   }, []);
@@ -105,22 +106,20 @@ export default function AdminDashboardScreen({ navigation }) {
 
   const isLargeScreen = screenWidth > 768;
   const lastFetchTimeRef = useRef(0);
+  const isFetchingAlertsRef = useRef(false);
+  const isFetchingNotificationsRef = useRef(false);
 
   const loadData = async (isFocus = false) => {
     const now = Date.now();
-    if (isFocus && now - lastFetchTimeRef.current < 2000) return;
+    if (isFocus && now - lastFetchTimeRef.current < 2500) return;
     lastFetchTimeRef.current = now;
 
     try {
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) {
         let userData = JSON.parse(userStr);
-        if (userData.role === 'SUPER_ADMIN' || (userData.role && userData.role.toUpperCase() === 'SUPER_ADMIN')) {
-          userData.role = 'ADMIN';
-          await AsyncStorage.setItem('user', JSON.stringify(userData));
-        }
         setUser(userData);
-        if (userData.role === 'ADMIN' || userData.role === 'PENGAWAS') {
+        if (userData.role === 'ADMIN' || userData.role === 'PENGAWAS' || userData.role === 'SUPER_ADMIN') {
           fetchAlerts();
           fetchNotifications();
         }
@@ -146,57 +145,75 @@ export default function AdminDashboardScreen({ navigation }) {
   }, [navigation]);
 
   const fetchAlerts = async () => {
+    if (isFetchingAlertsRef.current) return;
+    isFetchingAlertsRef.current = true;
     setLoadingAlerts(true);
     try {
       const token = await AsyncStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const vehicleRes = await axios.get(`${API_URL}/api/vehicles`, { headers });
-      const activeVehicles = vehicleRes.data;
-      setVehiclesCount(activeVehicles.length);
-      const activePolisi = activeVehicles.map(v => v.noPolisi);
+      // Jalankan request ke 3 endpoint secara paralel agar tidak ada cascading delay
+      const [vehicleRes, handoverRes, issueRes] = await Promise.allSettled([
+        axios.get(`${API_URL}/api/vehicles`, { headers }),
+        axios.get(`${API_URL}/api/handovers`, { headers }),
+        axios.get(`${API_URL}/api/issues/ongoing`, { headers })
+      ]);
 
-      const res = await axios.get(`${API_URL}/api/handovers`, { headers });
-      const dataHandovers = res.data.data || res.data;
-      setAllHandovers(dataHandovers);
-      
-      const issueRes = await axios.get(`${API_URL}/api/issues/ongoing`, { headers });
-      const activeIssues = issueRes.data.filter(issue => activePolisi.includes(issue.handover.noPolisi));
-      
-      setActiveIssuesCount(activeIssues.length);
-      
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      // Hanya ambil handover hari ini, tampilkan semua (Baik & Buruk)
-      const todaysHandovers = dataHandovers.filter(h => new Date(h.timestamp) >= today);
-      
-      setAlerts(todaysHandovers);
-    } catch (error) {
-      console.log("Gagal mengambil data alert:", error.message);
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        await handleLogoutAndReset(navigation);
+      let activePolisi = [];
+      if (vehicleRes.status === 'fulfilled') {
+        const activeVehicles = vehicleRes.value.data || [];
+        setVehiclesCount(activeVehicles.length);
+        activePolisi = activeVehicles.map(v => v.noPolisi);
+      } else {
+        console.log('[DASHBOARD] Gagal mengambil kendaraan:', vehicleRes.reason?.friendlyMessage || vehicleRes.reason?.message);
       }
+
+      if (handoverRes.status === 'fulfilled') {
+        const dataHandovers = handoverRes.value.data?.data || handoverRes.value.data || [];
+        setAllHandovers(dataHandovers);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todaysHandovers = dataHandovers.filter(h => new Date(h.timestamp) >= today);
+        setAlerts(todaysHandovers);
+      } else {
+        console.log('[DASHBOARD] Gagal mengambil handover:', handoverRes.reason?.friendlyMessage || handoverRes.reason?.message);
+      }
+
+      if (issueRes.status === 'fulfilled') {
+        const activeIssuesList = issueRes.value.data || [];
+        const filteredIssues = activePolisi.length > 0
+          ? activeIssuesList.filter(issue => activePolisi.includes(issue.handover?.noPolisi))
+          : activeIssuesList;
+        setActiveIssuesCount(filteredIssues.length);
+      } else {
+        console.log('[DASHBOARD] Gagal mengambil isu aktif:', issueRes.reason?.friendlyMessage || issueRes.reason?.message);
+      }
+    } catch (error) {
+      console.log('Gagal mengambil data alert:', error.friendlyMessage || error.message);
     } finally {
+      isFetchingAlertsRef.current = false;
       setLoadingAlerts(false);
     }
   };
 
   const fetchNotifications = async () => {
+    if (isFetchingNotificationsRef.current) return;
+    isFetchingNotificationsRef.current = true;
     try {
       const token = await AsyncStorage.getItem('token');
+      if (!token) return;
       const res = await axios.get(`${API_URL}/api/notifications`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.data.success) {
-        setNotifications(res.data.notifications);
-        setUnreadNotificationsCount(res.data.notifications.filter(n => !n.isRead).length);
+      if (res.data?.success) {
+        const notifList = res.data.notifications || [];
+        setNotifications(notifList);
+        setUnreadNotificationsCount(notifList.filter(n => !n.isRead).length);
       }
     } catch (error) {
-      console.log("Gagal mengambil notifikasi:", error.message);
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        await handleLogoutAndReset(navigation);
-      }
+      console.log('Gagal mengambil notifikasi:', error.friendlyMessage || error.message);
+    } finally {
+      isFetchingNotificationsRef.current = false;
     }
   };
 
@@ -245,7 +262,8 @@ export default function AdminDashboardScreen({ navigation }) {
     );
   }
 
-  const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN';
+  const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  const isAdmin = user.role === 'ADMIN' || isSuperAdmin;
   const isPengawas = user.role === 'PENGAWAS';
   const isAMT = user.role === 'AMT' || user.role === 'USER';
 
@@ -253,7 +271,8 @@ export default function AdminDashboardScreen({ navigation }) {
   const canSeeActions = isAdmin || isAMT;
 
   const getRoleLabel = () => {
-    if (isAdmin) return 'Admin';
+    if (isSuperAdmin) return 'Super Admin';
+    if (user.role === 'ADMIN') return 'Admin';
     if (isPengawas) return 'Pengawas';
     return 'Awak Mobil Tangki';
   };
@@ -509,8 +528,8 @@ export default function AdminDashboardScreen({ navigation }) {
               </View>
             </TouchableOpacity>
 
-            {/* Daftar Admin Full Width Card */}
-            {isAdmin && (
+            {/* Kelola Akun Admin Card (Khusus Super Admin) */}
+            {isSuperAdmin && (
               <TouchableOpacity
                 style={[tw`w-full p-4 sm:p-5 rounded-[28px] sm:rounded-[32px] border border-white/60 mb-4 flex-row items-center justify-between`, { backgroundColor: 'rgba(255,255,255,0.8)', ...glassStyle, shadowColor: '#0055A5', shadowOpacity: 0.1, shadowRadius: 20 }]}
                 onPress={() => navigation.navigate('AdminList')}
@@ -520,12 +539,54 @@ export default function AdminDashboardScreen({ navigation }) {
                     <Feather name="user-check" size={24} color="#0055A5" />
                   </View>
                   <View style={tw`flex-1 min-w-0 justify-center py-0.5`}>
-                    <Text style={tw`text-lg sm:text-2xl font-black text-gray-800 tracking-tight leading-tight`} numberOfLines={1}>Daftar Admin</Text>
-                    <Text style={tw`text-[10px] sm:text-xs text-blue-600 font-black uppercase tracking-wider mt-1 leading-normal`} numberOfLines={1}>Manajemen Akses Sistem</Text>
+                    <Text style={tw`text-lg sm:text-2xl font-black text-gray-800 tracking-tight leading-tight`} numberOfLines={1}>Kelola Akun Admin</Text>
+                    <Text style={tw`text-[10px] sm:text-xs text-blue-600 font-black uppercase tracking-wider mt-1 leading-normal`} numberOfLines={1}>Manajemen Akses Administrator</Text>
                   </View>
                 </View>
                 <View style={tw`w-9 h-9 sm:w-10 sm:h-10 bg-blue-50 rounded-full items-center justify-center shrink-0`}>
                   <Feather name="chevron-right" size={20} color="#0055A5" />
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {/* Manajemen Sesi Aktif Card (Khusus Super Admin) */}
+            {isSuperAdmin && (
+              <TouchableOpacity
+                style={[tw`w-full p-4 sm:p-5 rounded-[28px] sm:rounded-[32px] border border-white/60 mb-4 flex-row items-center justify-between`, { backgroundColor: 'rgba(255,255,255,0.8)', ...glassStyle, shadowColor: '#ED1C24', shadowOpacity: 0.1, shadowRadius: 20 }]}
+                onPress={() => navigation.navigate('ActiveSessions')}
+              >
+                <View style={tw`flex-row items-center flex-1 min-w-0 mr-3`}>
+                  <View style={tw`w-12 h-12 sm:w-14 sm:h-14 bg-red-100 rounded-full items-center justify-center mr-3.5 sm:mr-4 shrink-0`}>
+                    <Feather name="shield" size={24} color="#ED1C24" />
+                  </View>
+                  <View style={tw`flex-1 min-w-0 justify-center py-0.5`}>
+                    <Text style={tw`text-lg sm:text-2xl font-black text-gray-800 tracking-tight leading-tight`} numberOfLines={1}>Sesi Aktif</Text>
+                    <Text style={tw`text-[10px] sm:text-xs text-red-600 font-black uppercase tracking-wider mt-1 leading-normal`} numberOfLines={1}>Pantau & Cabut Sesi Pengguna</Text>
+                  </View>
+                </View>
+                <View style={tw`w-9 h-9 sm:w-10 sm:h-10 bg-red-50 rounded-full items-center justify-center shrink-0`}>
+                  <Feather name="chevron-right" size={20} color="#ED1C24" />
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {/* Audit Log Sistem Card (Khusus Super Admin) */}
+            {isSuperAdmin && (
+              <TouchableOpacity
+                style={[tw`w-full p-4 sm:p-5 rounded-[28px] sm:rounded-[32px] border border-white/60 mb-4 flex-row items-center justify-between`, { backgroundColor: 'rgba(255,255,255,0.8)', ...glassStyle, shadowColor: '#475569', shadowOpacity: 0.1, shadowRadius: 20 }]}
+                onPress={() => navigation.navigate('AuditLog')}
+              >
+                <View style={tw`flex-row items-center flex-1 min-w-0 mr-3`}>
+                  <View style={tw`w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-full items-center justify-center mr-3.5 sm:mr-4 shrink-0`}>
+                    <Feather name="file-text" size={24} color="#475569" />
+                  </View>
+                  <View style={tw`flex-1 min-w-0 justify-center py-0.5`}>
+                    <Text style={tw`text-lg sm:text-2xl font-black text-gray-800 tracking-tight leading-tight`} numberOfLines={1}>Audit Log Sistem</Text>
+                    <Text style={tw`text-[10px] sm:text-xs text-slate-600 font-black uppercase tracking-wider mt-1 leading-normal`} numberOfLines={1}>Rekam Jejak & Keamanan</Text>
+                  </View>
+                </View>
+                <View style={tw`w-9 h-9 sm:w-10 sm:h-10 bg-slate-50 rounded-full items-center justify-center shrink-0`}>
+                  <Feather name="chevron-right" size={20} color="#475569" />
                 </View>
               </TouchableOpacity>
             )}

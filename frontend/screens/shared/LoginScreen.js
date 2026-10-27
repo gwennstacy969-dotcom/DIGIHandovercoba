@@ -14,7 +14,7 @@ import ForgotPasswordModal from '../../components/ForgotPasswordModal';
 const PERTAMINA_BLUE = ['#0055A5', '#003366'];
 const PERTAMINA_RED = ['#ED1C24', '#B30000'];
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen({ navigation, route }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isUsernameFocused, setIsUsernameFocused] = useState(false);
@@ -25,6 +25,12 @@ export default function LoginScreen({ navigation }) {
   const [showForgotPromptModal, setShowForgotPromptModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmittingReset, setIsSubmittingReset] = useState(false);
+
+  useEffect(() => {
+    if (route?.params?.sessionExpiredMessage) {
+      setErrorMessage(route.params.sessionExpiredMessage);
+    }
+  }, [route?.params?.sessionExpiredMessage]);
 
 
   // Tangani tombol back hardware Android saat di halaman Login agar keluar dari aplikasi (tidak balik ke dashboard)
@@ -55,7 +61,7 @@ export default function LoginScreen({ navigation }) {
     Animated.timing(fadeAnim, {
       toValue: isPasswordFocused ? 1 : 0,
       duration: 300,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== 'web',
     }).start();
   }, [isPasswordFocused]);
 
@@ -109,7 +115,9 @@ export default function LoginScreen({ navigation }) {
       }
     } catch (error) {
       const resp = error.response;
-      if (resp?.status === 401) {
+      if (resp?.status === 409) {
+        setErrorMessage(resp.data?.error || 'Akun ini sedang digunakan pada perangkat lain. Harap logout dari perangkat sebelumnya atau hubungi Super Admin.');
+      } else if (resp?.status === 401) {
         setErrorMessage(resp.data?.error || 'Username atau password salah');
         // Jika 3 kali atau lebih gagal berturut-turut, tampilkan modal bantuan lupa password
         if (resp.data?.showForgotPasswordPrompt || resp.data?.failedAttempts >= 3) {
@@ -176,14 +184,14 @@ export default function LoginScreen({ navigation }) {
       Animated.timing(keyboardShift, {
         toValue: Platform.OS === 'ios' ? -100 : -130,
         duration: 250,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }).start();
     });
     const hideSub = Keyboard.addListener(hideEvent, () => {
       Animated.timing(keyboardShift, {
         toValue: 0,
         duration: 250,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }).start();
     });
 

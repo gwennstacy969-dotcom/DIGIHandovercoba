@@ -142,8 +142,8 @@ export default function AppModal({
       fade.setValue(0);
       scale.setValue(0.96);
       Animated.parallel([
-        Animated.timing(fade, { toValue: 1, duration: 200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 1, duration: 220, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(fade, { toValue: 1, duration: 200, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(scale, { toValue: 1, duration: 220, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
       ]).start();
     }
   }, [visible, fade, scale]);

@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import TextLogo from './components/TextLogo';
 import { View, Image, Text, ActivityIndicator, Animated, Easing, StyleSheet, Platform } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import axios from 'axios';
 import Toast, { BaseToast, ErrorToast } from 'react-native-toast-message';
+
+const navigationRef = createNavigationContainerRef();
 
 const toastConfig = {
   success: (props) => (
@@ -47,6 +49,8 @@ import PengawasListScreen from './screens/admin/PengawasListScreen';
 import VehicleListScreen from './screens/admin/VehicleListScreen';
 import ChecklistManagerScreen from './screens/admin/ChecklistManagerScreen';
 import AdminListScreen from './screens/admin/AdminListScreen';
+import AuditLogScreen from './screens/admin/AuditLogScreen';
+import ActiveSessionsScreen from './screens/admin/ActiveSessionsScreen';
 import PengawasDashboardScreen from './screens/pengawas/PengawasDashboardScreen';
 import IssueListScreen from './screens/pengawas/IssueListScreen';
 import IssueDetailScreen from './screens/pengawas/IssueDetailScreen';
@@ -55,8 +59,9 @@ import UserDashboardScreen from './screens/user/UserDashboardScreen';
 import ScannerScreen from './screens/user/ScannerScreen';
 import HandoverFormScreen from './screens/user/HandoverFormScreen';
 import FixVerificationScreen from './screens/user/FixVerificationScreen';
+import SessionManager from './components/SessionManager';
 
-import { API_URL, loadSavedApiUrl } from './config';
+import { API_URL, loadSavedApiUrl, classifyApiError } from './config';
 
 const Stack = createNativeStackNavigator();
 
@@ -88,17 +93,63 @@ export default function App() {
     // Bypass ngrok browser warning page
     axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
 
-    // Interceptor global untuk membersihkan session jika token expired / unauthorized
-    const interceptor = axios.interceptors.response.use(
-      (response) => response,
+    // Interceptor request untuk logging diagnostik
+    const reqInterceptor = axios.interceptors.request.use(
+      (config) => {
+        config.metadata = { startTime: Date.now() };
+        if (__DEV__) {
+          console.log(`[HTTP REQ] ${config.method?.toUpperCase()} ${config.url}`);
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+
+    // Interceptor global untuk logging diagnostik & membersihkan session jika token expired / unauthorized
+    const resInterceptor = axios.interceptors.response.use(
+      (response) => {
+        const duration = Date.now() - (response.config?.metadata?.startTime || Date.now());
+        if (__DEV__) {
+          console.log(`[HTTP RES] ${response.status} ${response.config?.method?.toUpperCase()} ${response.config?.url} (${duration}ms)`);
+        }
+        return response;
+      },
       async (error) => {
         const originalRequest = error.config;
         const status = error.response?.status;
-        const errMessage = error.response?.data?.error || '';
-        
-        const isAuthError = status === 401 || (status === 403 && (errMessage.includes('Token') || errMessage.includes('kadaluarsa')));
+        const errData = error.response?.data;
+        const errMessage = errData?.error || '';
+        const duration = Date.now() - (originalRequest?.metadata?.startTime || Date.now());
 
-        if (isAuthError && !originalRequest._retry && originalRequest.url !== `${API_URL}/api/auth/refresh`) {
+        // Klasifikasi kegagalan secara akurat
+        const errorInfo = classifyApiError(error);
+        error.failureType = errorInfo.type;
+        error.friendlyMessage = errorInfo.message;
+
+        if (__DEV__) {
+          console.log(`[HTTP ERR] [${errorInfo.type}] ${originalRequest?.method?.toUpperCase()} ${originalRequest?.url} (${duration}ms): ${errorInfo.message}`);
+        }
+
+        const isSessionExpired = errData?.isSessionExpired || status === 401;
+
+        // Jika sesi telah berakhir/dicabut atau 401 Unauthorized, langsung bersihkan tanpa loop refresh
+        if (isSessionExpired) {
+          await AsyncStorage.multiRemove(['user', 'token', 'refreshToken']);
+          delete axios.defaults.headers.common['Authorization'];
+          if (navigationRef.isReady()) {
+            const currentRoute = navigationRef.getCurrentRoute()?.name;
+            if (currentRoute && currentRoute !== 'Login') {
+              navigationRef.reset({
+                index: 0,
+                routes: [{ name: 'Login', params: { sessionExpiredMessage: errMessage || errorInfo.message || 'Sesi Anda telah berakhir. Silakan login kembali.' } }]
+              });
+            }
+          }
+          return Promise.reject(error);
+        }
+
+        const isTokenExpiredError = status === 403 && (errMessage.includes('Token') || errMessage.includes('kadaluarsa'));
+        if (isTokenExpiredError && !originalRequest._retry && originalRequest.url !== `${API_URL}/api/auth/refresh`) {
           originalRequest._retry = true;
           try {
             const refreshToken = await AsyncStorage.getItem('refreshToken');
@@ -117,14 +168,17 @@ export default function App() {
           }
         }
 
-        if (isAuthError) {
+        if (status === 401 || isTokenExpiredError) {
           await AsyncStorage.multiRemove(['user', 'token', 'refreshToken']);
           delete axios.defaults.headers.common['Authorization'];
         }
         return Promise.reject(error);
       }
     );
-    return () => axios.interceptors.response.eject(interceptor);
+    return () => {
+      axios.interceptors.request.eject(reqInterceptor);
+      axios.interceptors.response.eject(resInterceptor);
+    };
   }, []);
 
   useEffect(() => {
@@ -162,10 +216,6 @@ export default function App() {
           }
 
           let user = JSON.parse(userStr);
-          if (user.role === 'SUPER_ADMIN' || (user.role && user.role.toUpperCase() === 'SUPER_ADMIN')) {
-            user.role = 'ADMIN';
-            await AsyncStorage.setItem('user', JSON.stringify(user));
-          }
           axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
           if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') {
@@ -204,7 +254,7 @@ export default function App() {
       Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 800,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }),
       Animated.loop(
         Animated.sequence([
@@ -212,13 +262,13 @@ export default function App() {
             toValue: 1.05,
             duration: 1500,
             easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
+            useNativeDriver: Platform.OS !== 'web',
           }),
           Animated.timing(scaleAnim, {
             toValue: 0.95,
             duration: 1500,
             easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
+            useNativeDriver: Platform.OS !== 'web',
           })
         ])
       )
@@ -243,7 +293,8 @@ export default function App() {
           </Animated.View>
         </View>
       ) : (
-        <NavigationContainer>
+        <NavigationContainer ref={navigationRef}>
+          <SessionManager navigationRef={navigationRef} />
           <Stack.Navigator
             initialRouteName={initialRoute}
             screenOptions={{
@@ -268,6 +319,8 @@ export default function App() {
             <Stack.Screen name="WorkerList" component={WorkerListScreen} />
             <Stack.Screen name="PengawasList" component={PengawasListScreen} />
             <Stack.Screen name="AdminList" component={AdminListScreen} />
+            <Stack.Screen name="AuditLog" component={AuditLogScreen} />
+            <Stack.Screen name="ActiveSessions" component={ActiveSessionsScreen} />
           </Stack.Navigator>
         </NavigationContainer>
       )}

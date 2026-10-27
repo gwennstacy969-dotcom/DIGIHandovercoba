@@ -237,7 +237,7 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
     }
 
     if (type === 'mulai') {
-      if (hasActiveMajorIssue || reconciledVehicle.status === 'Maintenance') {
+      if (hasActiveMajorIssue || reconciledVehicle.isManualMaintenance || reconciledVehicle.status === 'Maintenance') {
         return res.status(409).json({
           error: 'Kendaraan sedang dalam perbaikan (Maintenance) dan belum siap untuk Mulai Pekerjaan.'
         });
@@ -284,6 +284,20 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
 
     // Jalankan seluruh penyimpanan dalam database transaction untuk integritas penuh
     const handover = await prisma.$transaction(async (tx) => {
+      // Re-fetch vehicle inside transaction to verify concurrency
+      const lockedVeh = await tx.vehicle.findUnique({
+        where: { noPolisi }
+      });
+      if (!lockedVeh) {
+        throw new Error('VEHICLE_NOT_FOUND');
+      }
+
+      if (type === 'mulai') {
+        if (lockedVeh.status === 'Active' || lockedVeh.isManualMaintenance || lockedVeh.status === 'Maintenance') {
+          throw new Error('VEHICLE_NOT_READY_OR_CONFLICT');
+        }
+      }
+
       // 1. Simpan Handover & Items & Photos
       const createdHandover = await tx.handover.create({
         data: {
@@ -367,17 +381,29 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
       if (hasMajorIssue) {
         await tx.vehicle.update({
           where: { noPolisi },
-          data: { status: 'Maintenance' }
+          data: {
+            status: 'Maintenance',
+            isManualMaintenance: false,
+            maintenanceReason: `Temuan Major pada Handover ${type.toUpperCase()}`
+          }
         });
       } else if (type === 'mulai') {
         await tx.vehicle.update({
           where: { noPolisi },
-          data: { status: 'Active' }
+          data: {
+            status: 'Active',
+            isManualMaintenance: false,
+            maintenanceReason: null
+          }
         });
       } else if (type === 'akhiri') {
+        const nextStatus = lockedVeh.isManualMaintenance ? 'Maintenance' : 'READY_TO_START';
         await tx.vehicle.update({
           where: { noPolisi },
-          data: { status: 'READY_TO_START' }
+          data: {
+            status: nextStatus,
+            ...(lockedVeh.isManualMaintenance ? {} : { maintenanceReason: null })
+          }
         });
       }
 
@@ -399,6 +425,12 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
     res.status(201).json({ success: true, handover });
   } catch (error) {
     console.error('Submit handover error:', error);
+    if (error.message === 'VEHICLE_NOT_READY_OR_CONFLICT') {
+      return res.status(409).json({ error: 'Kendaraan baru saja diambil oleh pengemudi lain atau belum siap untuk Mulai Pekerjaan.' });
+    }
+    if (error.message === 'VEHICLE_NOT_FOUND') {
+      return res.status(404).json({ error: 'Kendaraan tidak ditemukan' });
+    }
     res.status(500).json({ error: error.message });
   }
 });

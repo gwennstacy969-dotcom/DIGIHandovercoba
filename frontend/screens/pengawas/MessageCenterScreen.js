@@ -57,22 +57,22 @@ export default function MessageCenterScreen({ navigation }) {
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(orb1TranslateY, { toValue: -40, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(orb1TranslateY, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(orb1TranslateY, { toValue: -40, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(orb1TranslateY, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' })
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(orb2TranslateY, { toValue: 50, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(orb2TranslateY, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(orb2TranslateY, { toValue: 50, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(orb2TranslateY, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' })
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(slideAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(slideAnim, { toValue: 0, duration: 1500, easing: Easing.linear, useNativeDriver: true })
+        Animated.timing(slideAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 1500, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web' })
       ])
     ).start();
     

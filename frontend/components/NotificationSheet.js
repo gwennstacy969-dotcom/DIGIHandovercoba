@@ -48,7 +48,7 @@ export default function NotificationSheet({ visible, notifications = [], onClose
   useEffect(() => {
     if (visible) {
       slide.setValue(0);
-      Animated.timing(slide, { toValue: 1, duration: 280, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+      Animated.timing(slide, { toValue: 1, duration: 280, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
     }
   }, [visible, slide]);
 

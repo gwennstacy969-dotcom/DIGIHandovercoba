@@ -268,7 +268,12 @@ router.put('/:id', authenticateToken, authorizeRole(['ADMIN', 'SUPER_ADMIN']), a
       });
     }
 
-    res.json({ success: true, vehicle });
+    res.json({
+      success: true,
+      vehicle,
+      status: vehicle.status,
+      isManualMaintenance: vehicle.isManualMaintenance
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -299,14 +304,61 @@ router.delete('/:id', authenticateToken, authorizeRole(['ADMIN', 'SUPER_ADMIN'])
 // 5. PUT Vehicle Status (Ubah ke Maintenance / Active / dll - Admin & Pengawas)
 router.put('/:id/status', authenticateToken, authorizeRole(['ADMIN', 'SUPER_ADMIN', 'PENGAWAS']), async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, reason } = req.body;
     if (!status) return res.status(400).json({ error: 'Status wajib disertakan' });
 
-    const vehicle = await prisma.vehicle.update({
-      where: { id: req.params.id },
-      data: { status }
+    const updateData = { status };
+    if (status === 'Maintenance') {
+      updateData.isManualMaintenance = true;
+      updateData.maintenanceReason = reason ? String(reason).trim() : 'MANUAL_MAINTENANCE_SUPERVISOR';
+    } else {
+      updateData.isManualMaintenance = false;
+      updateData.maintenanceReason = null;
+    }
+
+    const targetVeh = await prisma.vehicle.findFirst({
+      where: {
+        OR: [
+          { id: req.params.id },
+          { noPolisi: req.params.id }
+        ]
+      }
     });
-    res.json({ success: true, vehicle });
+
+    if (!targetVeh) {
+      return res.status(404).json({ error: 'Kendaraan tidak ditemukan' });
+    }
+
+    const vehicle = await prisma.vehicle.update({
+      where: { id: targetVeh.id },
+      data: updateData
+    });
+
+    try {
+      await prisma.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'UPDATE_VEHICLE_STATUS',
+          actionType: 'VEHICLE',
+          noPolisi: vehicle.noPolisi,
+          details: JSON.stringify({
+            vehicleId: vehicle.id,
+            noPolisi: vehicle.noPolisi,
+            status,
+            isManualMaintenance: updateData.isManualMaintenance,
+            reason: updateData.maintenanceReason,
+            updatedBy: req.user.name || req.user.username
+          })
+        }
+      });
+    } catch (_) {}
+
+    res.json({
+      success: true,
+      vehicle,
+      status: vehicle.status,
+      isManualMaintenance: vehicle.isManualMaintenance
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

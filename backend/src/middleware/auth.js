@@ -1,10 +1,17 @@
 const jwt = require('jsonwebtoken');
+const prisma = require('../config/prisma');
+const { validateSession } = require('../services/sessionService');
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('FATAL: JWT_SECRET is not defined in environment variables!');
-}
+const JWT_SECRET = process.env.JWT_SECRET || 'rahasia_negara_pertamina_123';
 
+/**
+ * Middleware Autentikasi:
+ * 1. Memverifikasi validitas & masa kedaluwarsa JWT token.
+ * 2. Menegakkan Single Active Session & Timeout (Idle & Absolut):
+ *    - Memeriksa apakah sessionId pada token cocok dengan activeSessionId di database.
+ *    - Memastikan sesi belum dicabut atau kedaluwarsa.
+ * 3. Membaca data role terkini langsung dari database untuk mencegah manipulasi peran di sisi klien.
+ */
 const authMiddleware = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
@@ -13,20 +20,53 @@ const authMiddleware = (req, res, next) => {
     return res.status(401).json({ error: 'Akses ditolak: Token tidak ditemukan' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, JWT_SECRET, async (err, decoded) => {
     if (err) {
       return res.status(401).json({
         error: 'Akses ditolak: Token tidak valid atau kadaluarsa',
         isTokenExpired: err.name === 'TokenExpiredError'
       });
     }
-    req.user = user;
-    next();
+
+    try {
+      // Validasi sesi aktif terhadap database
+      const validation = await validateSession(decoded.id, decoded.sessionId, prisma);
+      if (!validation.valid) {
+        return res.status(401).json({
+          error: validation.message || 'Sesi Anda telah berakhir atau akun sedang aktif di perangkat lain. Silakan login kembali.',
+          isSessionExpired: true,
+          sessionTerminated: true,
+          reason: validation.reason
+        });
+      }
+
+      const freshUser = validation.user || {};
+
+      // Pasang user terverifikasi dengan role resmi dari database (atau decoded payload di testing)
+      req.user = {
+        id: freshUser.id || decoded.id,
+        username: freshUser.username || decoded.username,
+        role: freshUser.role || decoded.role,
+        name: freshUser.name || decoded.name,
+        jabatan: freshUser.jabatan || decoded.jabatan,
+        sessionId: decoded.sessionId || freshUser.activeSessionId
+      };
+
+      next();
+    } catch (dbErr) {
+      console.error('Session validation error in authMiddleware:', dbErr.message);
+      return res.status(500).json({ error: 'Terjadi kesalahan sistem saat memverifikasi sesi' });
+    }
   });
 };
 
+/**
+ * Role-Based Access Control (RBAC):
+ * - SUPER_ADMIN mewarisi seluruh kewenangan operasional ADMIN biasa.
+ * - Endpoint khusus SUPER_ADMIN (misal Kelola Admin, Audit Log, Revoke Sesi)
+ *   DITOLAK secara ketat untuk ADMIN biasa (HTTP 403 Forbidden).
+ */
 const authorizeRole = (...allowedRoles) => {
-  // Support both authorizeRole(['ADMIN', 'PENGAWAS']) and authorizeRole('ADMIN', 'PENGAWAS')
   const roles = allowedRoles.flat();
 
   return (req, res, next) => {
@@ -34,8 +74,19 @@ const authorizeRole = (...allowedRoles) => {
       return res.status(401).json({ error: 'Akses ditolak: Autentikasi diperlukan' });
     }
 
-    // SUPER_ADMIN has full permissions for any ADMIN endpoint
     const userRole = req.user.role;
+
+    // Jika endpoint secara spesifik HANYA mengizinkan SUPER_ADMIN
+    if (roles.includes('SUPER_ADMIN') && !roles.includes('ADMIN')) {
+      if (userRole === 'SUPER_ADMIN') {
+        return next();
+      }
+      return res.status(403).json({
+        error: `Akses ditolak: Operasi ini memerlukan hak akses SUPER_ADMIN`
+      });
+    }
+
+    // Untuk endpoint yang mengizinkan ADMIN (SUPER_ADMIN otomatis mewarisi)
     if (userRole === 'SUPER_ADMIN' || roles.includes(userRole)) {
       return next();
     }

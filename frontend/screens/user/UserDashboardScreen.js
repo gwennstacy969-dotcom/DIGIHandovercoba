@@ -19,6 +19,7 @@ const GLASS_BG = 'rgba(255, 255, 255, 0.7)';
 
 // Helper untuk efek Glassmorphism di Web
 const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
+const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 
 import { useDashboardBackHandler } from '../../hooks/useDashboardBackHandler';
 
@@ -54,22 +55,22 @@ export default function UserDashboardScreen({ navigation }) {
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim1, { toValue: 1, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(floatAnim1, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(floatAnim1, { toValue: 1, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(floatAnim1, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim2, { toValue: 1, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(floatAnim2, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(floatAnim2, { toValue: 1, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(floatAnim2, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim3, { toValue: 1, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(floatAnim3, { toValue: 0, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(floatAnim3, { toValue: 1, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(floatAnim3, { toValue: 0, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
 
@@ -78,14 +79,14 @@ export default function UserDashboardScreen({ navigation }) {
         toValue: 1,
         duration: 2500,
         easing: Easing.linear,
-        useNativeDriver: true
+        useNativeDriver: USE_NATIVE_DRIVER
       })
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(slideAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(slideAnim, { toValue: 0, duration: 1500, easing: Easing.linear, useNativeDriver: true })
+        Animated.timing(slideAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 1500, easing: Easing.linear, useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
   }, []);
@@ -98,22 +99,21 @@ export default function UserDashboardScreen({ navigation }) {
 
   const isLargeScreen = screenWidth > 768;
   const lastFetchTimeRef = useRef(0);
+  const isFetchingAlertsRef = useRef(false);
+  const isFetchingNotificationsRef = useRef(false);
+  const isFetchingMyActiveRef = useRef(false);
 
   const loadData = async (isFocus = false) => {
     const now = Date.now();
-    if (isFocus && now - lastFetchTimeRef.current < 2000) return;
+    if (isFocus && now - lastFetchTimeRef.current < 3000) return;
     lastFetchTimeRef.current = now;
 
     try {
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) {
         let userData = JSON.parse(userStr);
-        if (userData.role === 'SUPER_ADMIN' || (userData.role && userData.role.toUpperCase() === 'SUPER_ADMIN')) {
-          userData.role = 'ADMIN';
-          await AsyncStorage.setItem('user', JSON.stringify(userData));
-        }
         setUser(userData);
-        if (userData.role === 'ADMIN' || userData.role === 'PENGAWAS') {
+        if (userData.role === 'ADMIN' || userData.role === 'SUPER_ADMIN' || userData.role === 'PENGAWAS') {
           fetchAlerts();
         }
         fetchNotifications();
@@ -142,45 +142,62 @@ export default function UserDashboardScreen({ navigation }) {
   }, [navigation]);
 
   const fetchAlerts = async () => {
+    if (isFetchingAlertsRef.current) return;
+    isFetchingAlertsRef.current = true;
     setLoadingAlerts(true);
     try {
       const token = await AsyncStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const handoverRes = await axios.get(`${API_URL}/api/handovers`, { headers });
-      const dataHandovers = handoverRes.data.data || handoverRes.data;
-      setAllHandovers(dataHandovers);
-      const issuesRes = await axios.get(`${API_URL}/api/issues/ongoing`, { headers });
-      setAlerts(issuesRes.data.map(i => i.handover));
-    } catch (error) {
-      console.log("Gagal mengambil data alert:", error.message);
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        await handleLogoutAndReset(navigation);
+      const [handoverResult, issuesResult] = await Promise.allSettled([
+        axios.get(`${API_URL}/api/handovers`, { headers, timeout: 10000 }),
+        axios.get(`${API_URL}/api/issues/ongoing`, { headers, timeout: 10000 })
+      ]);
+
+      if (handoverResult.status === 'fulfilled') {
+        const dataHandovers = handoverResult.value.data.data || handoverResult.value.data;
+        setAllHandovers(Array.isArray(dataHandovers) ? dataHandovers : []);
+      } else {
+        console.warn("fetchAlerts handovers error:", handoverResult.reason?.message);
       }
+
+      if (issuesResult.status === 'fulfilled') {
+        const issuesData = issuesResult.value.data || [];
+        setAlerts(Array.isArray(issuesData) ? issuesData.map(i => i.handover).filter(Boolean) : []);
+      } else {
+        console.warn("fetchAlerts issues error:", issuesResult.reason?.message);
+      }
+    } catch (error) {
+      console.warn("Gagal mengambil data alert:", error.message);
     } finally {
       setLoadingAlerts(false);
+      isFetchingAlertsRef.current = false;
     }
   };
 
   const fetchNotifications = async () => {
+    if (isFetchingNotificationsRef.current) return;
+    isFetchingNotificationsRef.current = true;
     try {
       const token = await AsyncStorage.getItem('token');
       const res = await axios.get(`${API_URL}/api/notifications`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        timeout: 10000
       });
       if (res.data.success) {
-        setNotifications(res.data.notifications);
-        setUnreadNotificationsCount(res.data.notifications.filter(n => !n.isRead).length);
+        setNotifications(res.data.notifications || []);
+        setUnreadNotificationsCount((res.data.notifications || []).filter(n => !n.isRead).length);
       }
     } catch (error) {
-      console.log("Gagal mengambil notifikasi:", error.message);
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        await handleLogoutAndReset(navigation);
-      }
+      console.warn("Gagal mengambil notifikasi:", error.message);
+    } finally {
+      isFetchingNotificationsRef.current = false;
     }
   };
 
   const fetchMyActiveHandover = async () => {
+    if (isFetchingMyActiveRef.current) return;
+    isFetchingMyActiveRef.current = true;
     setLoadingActiveHandover(true);
     try {
       const token = await AsyncStorage.getItem('token');
@@ -191,18 +208,17 @@ export default function UserDashboardScreen({ navigation }) {
         : `${API_URL}/api/handovers/my-active`;
 
       const res = await axios.get(url, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        timeout: 10000
       });
       if (res.data.success) {
         setMyActiveHandover(res.data.activeHandover);
       }
     } catch (error) {
-      console.log("Gagal mengambil status handover aktif:", error.message);
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        await handleLogoutAndReset(navigation);
-      }
+      console.warn("Gagal mengambil status handover aktif:", error.message);
     } finally {
       setLoadingActiveHandover(false);
+      isFetchingMyActiveRef.current = false;
     }
   };
 

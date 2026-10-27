@@ -4,17 +4,35 @@ const JWT_SECRET = process.env.JWT_SECRET || 'rahasia_negara_pertamina_123';
 const REFRESH_SECRET = process.env.REFRESH_SECRET || 'refresh_rahasia_negara_pertamina_123';
 
 class TokenManager {
-  static generateAccessToken(user) {
+  static generateAccessToken(user, sessionId = null) {
+    const sid = sessionId || user.activeSessionId || null;
+    const payload = {
+      id: user.id,
+      username: user.username,
+      role: user.role
+    };
+    if (sid) {
+      payload.sessionId = sid;
+    }
     return jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
+      payload,
       JWT_SECRET,
       { expiresIn: '1d' }
     );
   }
 
-  static generateRefreshToken(user) {
+  static generateRefreshToken(user, sessionId = null) {
+    const sid = sessionId || user.activeSessionId || null;
+    const payload = {
+      id: user.id,
+      username: user.username,
+      role: user.role
+    };
+    if (sid) {
+      payload.sessionId = sid;
+    }
     return jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
+      payload,
       REFRESH_SECRET,
       { expiresIn: '7d' }
     );

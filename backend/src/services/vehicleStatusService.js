@@ -90,22 +90,25 @@ const checkHasActiveMajorIssue = (activeIssues = [], currentVehicleStatus = '') 
 
 /**
  * Menghitung status operasional kendaraan yang benar berdasarkan:
+ * - Maintenance manual oleh Admin/Pengawas (tidak boleh dihapus tanpa otorisasi)
  * - Temuan Major aktif (ONGOING / PENDING_APPROVAL)
  * - Riwayat handover terakhir (akhiri vs mulai vs belum ada)
  * 
  * Aturan bisnis:
- * 1. Jika ada temuan Major aktif -> 'Maintenance'.
- * 2. Jika tidak ada temuan Major aktif:
+ * 1. Jika ditetapkan Maintenance manual oleh Admin/Pengawas -> 'Maintenance'.
+ * 2. Jika ada temuan Major aktif -> 'Maintenance'.
+ * 3. Jika tidak ada temuan Major aktif dan bukan Maintenance manual:
  *    - Riwayat terakhir 'akhiri' -> 'READY_TO_START'
  *    - Riwayat terakhir 'mulai'  -> 'Active'
  *    - Belum ada riwayat handover -> 'READY_TO_START'
  * 
  * @param {object|null} lastHandover 
  * @param {boolean} hasActiveMajorIssue 
+ * @param {boolean} [isManualMaintenance=false]
  * @returns {string} 'READY_TO_START' | 'Active' | 'Maintenance'
  */
-const determineExpectedStatus = (lastHandover, hasActiveMajorIssue) => {
-  if (hasActiveMajorIssue) {
+const determineExpectedStatus = (lastHandover, hasActiveMajorIssue, isManualMaintenance = false) => {
+  if (isManualMaintenance || hasActiveMajorIssue) {
     return 'Maintenance';
   }
   if (!lastHandover) {
@@ -188,8 +191,9 @@ const reconcileVehicleOperationalStatus = async (
   const activeIssues = await getActiveVehicleIssues(noPolisi, client);
   const hasActiveMajorIssue = checkHasActiveMajorIssue(activeIssues, vehicle.status);
 
-  // 3. Tentukan status operasional yang diharapkan
-  const expectedStatus = determineExpectedStatus(lastHandover, hasActiveMajorIssue);
+  // 3. Tentukan status operasional yang diharapkan (memperhitungkan Maintenance manual)
+  const isManual = Boolean(vehicle.isManualMaintenance);
+  const expectedStatus = determineExpectedStatus(lastHandover, hasActiveMajorIssue, isManual);
 
   // 4. Koreksi status database jika usang
   let wasReconciled = false;

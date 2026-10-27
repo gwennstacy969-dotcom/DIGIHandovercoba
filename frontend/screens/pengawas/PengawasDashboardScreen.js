@@ -20,6 +20,7 @@ const GLASS_BG = 'rgba(255, 255, 255, 0.7)';
 
 // Helper untuk efek Glassmorphism di Web
 const glassStyle = Platform.OS === 'web' ? { backdropFilter: 'blur(24px)' } : {};
+const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 
 import { useRoleGuard } from '../../hooks/useRoleGuard';
 import { useDashboardBackHandler } from '../../hooks/useDashboardBackHandler';
@@ -51,22 +52,22 @@ export default function PengawasDashboardScreen({ navigation }) {
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim1, { toValue: 1, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(floatAnim1, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(floatAnim1, { toValue: 1, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(floatAnim1, { toValue: 0, duration: 8000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim2, { toValue: 1, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(floatAnim2, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(floatAnim2, { toValue: 1, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(floatAnim2, { toValue: 0, duration: 10000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim3, { toValue: 1, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(floatAnim3, { toValue: 0, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(floatAnim3, { toValue: 1, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(floatAnim3, { toValue: 0, duration: 12000, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
 
@@ -75,14 +76,14 @@ export default function PengawasDashboardScreen({ navigation }) {
         toValue: 1,
         duration: 2500,
         easing: Easing.linear,
-        useNativeDriver: true
+        useNativeDriver: USE_NATIVE_DRIVER
       })
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(slideAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(slideAnim, { toValue: 0, duration: 1500, easing: Easing.linear, useNativeDriver: true })
+        Animated.timing(slideAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 1500, easing: Easing.linear, useNativeDriver: USE_NATIVE_DRIVER })
       ])
     ).start();
   }, []);
@@ -96,22 +97,20 @@ export default function PengawasDashboardScreen({ navigation }) {
   const isLargeScreen = screenWidth > 768;
 
   const lastFetchTimeRef = useRef(0);
+  const isFetchingAlertsRef = useRef(false);
+  const isFetchingNotificationsRef = useRef(false);
 
   const loadData = async (isFocus = false) => {
     const now = Date.now();
-    if (isFocus && now - lastFetchTimeRef.current < 2000) return;
+    if (isFocus && now - lastFetchTimeRef.current < 2500) return;
     lastFetchTimeRef.current = now;
 
     try {
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) {
         let userData = JSON.parse(userStr);
-        if (userData.role === 'SUPER_ADMIN' || (userData.role && userData.role.toUpperCase() === 'SUPER_ADMIN')) {
-          userData.role = 'ADMIN';
-          await AsyncStorage.setItem('user', JSON.stringify(userData));
-        }
         setUser(userData);
-        if (userData.role === 'ADMIN' || userData.role === 'PENGAWAS') {
+        if (userData.role === 'ADMIN' || userData.role === 'PENGAWAS' || userData.role === 'SUPER_ADMIN') {
           fetchAlerts();
           fetchNotifications();
         }
@@ -137,57 +136,74 @@ export default function PengawasDashboardScreen({ navigation }) {
   }, [navigation]);
 
   const fetchAlerts = async () => {
+    if (isFetchingAlertsRef.current) return;
+    isFetchingAlertsRef.current = true;
     setLoadingAlerts(true);
     try {
       const token = await AsyncStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const vehicleRes = await axios.get(`${API_URL}/api/vehicles`, { headers });
-      const activeVehicles = vehicleRes.data;
-      setVehiclesCount(activeVehicles.length);
-      const activePolisi = activeVehicles.map(v => v.noPolisi);
+      const [vehicleRes, handoverRes, issueRes] = await Promise.allSettled([
+        axios.get(`${API_URL}/api/vehicles`, { headers }),
+        axios.get(`${API_URL}/api/handovers`, { headers }),
+        axios.get(`${API_URL}/api/issues/ongoing`, { headers })
+      ]);
 
-      const res = await axios.get(`${API_URL}/api/handovers`, { headers });
-      const dataHandovers = res.data.data || res.data;
-      setAllHandovers(dataHandovers);
-      
-      const issueRes = await axios.get(`${API_URL}/api/issues/ongoing`, { headers });
-      const activeIssues = issueRes.data.filter(issue => activePolisi.includes(issue.handover.noPolisi));
-      
-      setActiveIssuesCount(activeIssues.length);
-      
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      // Hanya ambil handover hari ini, tampilkan semua (Baik & Buruk)
-      const todaysHandovers = dataHandovers.filter(h => new Date(h.timestamp) >= today);
-      
-      setAlerts(todaysHandovers);
-    } catch (error) {
-      console.log("Gagal mengambil data alert:", error.message);
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        await handleLogoutAndReset(navigation);
+      let activePolisi = [];
+      if (vehicleRes.status === 'fulfilled') {
+        const activeVehicles = vehicleRes.value.data || [];
+        setVehiclesCount(activeVehicles.length);
+        activePolisi = activeVehicles.map(v => v.noPolisi);
+      } else {
+        console.log('[PENGAWAS] Gagal mengambil kendaraan:', vehicleRes.reason?.friendlyMessage || vehicleRes.reason?.message);
       }
+
+      if (handoverRes.status === 'fulfilled') {
+        const dataHandovers = handoverRes.value.data?.data || handoverRes.value.data || [];
+        setAllHandovers(dataHandovers);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todaysHandovers = dataHandovers.filter(h => new Date(h.timestamp) >= today);
+        setAlerts(todaysHandovers);
+      } else {
+        console.log('[PENGAWAS] Gagal mengambil handover:', handoverRes.reason?.friendlyMessage || handoverRes.reason?.message);
+      }
+
+      if (issueRes.status === 'fulfilled') {
+        const activeIssuesList = issueRes.value.data || [];
+        const filteredIssues = activePolisi.length > 0
+          ? activeIssuesList.filter(issue => activePolisi.includes(issue.handover?.noPolisi))
+          : activeIssuesList;
+        setActiveIssuesCount(filteredIssues.length);
+      } else {
+        console.log('[PENGAWAS] Gagal mengambil isu aktif:', issueRes.reason?.friendlyMessage || issueRes.reason?.message);
+      }
+    } catch (error) {
+      console.log('Gagal mengambil data alert:', error.friendlyMessage || error.message);
     } finally {
+      isFetchingAlertsRef.current = false;
       setLoadingAlerts(false);
     }
   };
 
   const fetchNotifications = async () => {
+    if (isFetchingNotificationsRef.current) return;
+    isFetchingNotificationsRef.current = true;
     try {
       const token = await AsyncStorage.getItem('token');
+      if (!token) return;
       const res = await axios.get(`${API_URL}/api/notifications`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.data.success) {
-        setNotifications(res.data.notifications);
-        setUnreadNotificationsCount(res.data.notifications.filter(n => !n.isRead).length);
+      if (res.data?.success) {
+        const notifList = res.data.notifications || [];
+        setNotifications(notifList);
+        setUnreadNotificationsCount(notifList.filter(n => !n.isRead).length);
       }
     } catch (error) {
-      console.log("Gagal mengambil notifikasi:", error.message);
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        await handleLogoutAndReset(navigation);
-      }
+      console.log('Gagal mengambil notifikasi:', error.friendlyMessage || error.message);
+    } finally {
+      isFetchingNotificationsRef.current = false;
     }
   };
 
