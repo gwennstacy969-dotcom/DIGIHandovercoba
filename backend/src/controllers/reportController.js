@@ -342,11 +342,12 @@ const exportExcel = async (req, res) => {
       const isMulai = h.type === 'mulai';
       const tipeStr = isMulai ? 'Mulai Pekerjaan' : 'Akhiri Pekerjaan';
       const shiftStr = h.shift || '-';
+      const hasCoords = h.locationLat !== null && h.locationLat !== undefined && h.locationLng !== null && h.locationLng !== undefined;
       const lokasiStr = h.locationAddress
-        ? (h.locationLat && h.locationLng ? `${h.locationAddress} (${h.locationLat.toFixed(5)}, ${h.locationLng.toFixed(5)})` : h.locationAddress)
-        : (h.locationLat && h.locationLng
-          ? `Fuel Terminal Maos (${h.locationLat.toFixed(5)}, ${h.locationLng.toFixed(5)})`
-          : 'Fuel Terminal Maos');
+        ? (hasCoords ? `${h.locationAddress} (${h.locationLat.toFixed(5)}, ${h.locationLng.toFixed(5)})` : h.locationAddress)
+        : (hasCoords
+          ? `Koordinat (${h.locationLat.toFixed(5)}, ${h.locationLng.toFixed(5)})`
+          : 'Lokasi Belum Terdata');
 
       const vehicleBadItems = (h.items || []).filter(i => !i.isGood && (i.category === 'A' || !i.category || i.category !== 'B'));
       const amtBadItems = (h.items || []).filter(i => !i.isGood && i.category === 'B');
@@ -999,7 +1000,7 @@ const exportPdf = async (req, res) => {
       datas: [
         {
           periode: periodStr,
-          lokasi: 'Fuel Terminal Maos',
+          lokasi: (isSingle && handovers[0]) ? (handovers[0].locationAddress || ((handovers[0].locationLat !== null && handovers[0].locationLng !== null) ? `Koordinat (${handovers[0].locationLat.toFixed(5)}, ${handovers[0].locationLng.toFixed(5)})` : 'Lokasi Operasional')) : 'Fuel Terminal Maos (Area Distribusi)',
           status: 'Digital Verified • Sistem Terintegrasi'
         }
       ]

@@ -229,8 +229,8 @@ jobs:
             # Pull image before touching running service to guarantee zero downtime and avoid broken state
             docker pull ghcr.io/${{ github.repository }}/backend:latest
 
-            echo "🚀 [3/5] Applying pending Prisma database migrations safely..."
-            docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml run --rm backend npx prisma migrate deploy || true
+            echo "🚀 [3/5] Applying pending Prisma database schema sync safely..."
+            docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml run --rm backend npx prisma db push --skip-generate
 
             echo "=== AUDIT CURRENT HOST STATE BEFORE CUTOVER ==="
             sudo ss -tulpn | grep 3000 || true

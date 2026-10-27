@@ -270,14 +270,18 @@ Dokumentasi arsitektur dan spesifikasi API mendalam tersedia di folder `docs/`:
 
 ---
 
-## 🔑 Akun Uji Coba Default
+## 🔑 Akun Peran Sistem (Development / Staging)
 
-| Role | Username | Password Default | Keterangan |
-| :--- | :--- | :--- | :--- |
-| **Admin** | `yoan` | `672023` | Administrator Akses penuh seluruh sistem, armada, & master data |
-| **Admin** | `haulafatiha` | `240206` | Administrator Akses penuh seluruh sistem, armada, & master data |
-| **Pengawas** | `sekar` | `12345` | Pengawas operasional lapangan |
-| **AMT** | Sesuai NIP Pekerja *(contoh: `617.05.0001`)* | `617.05.0001` | Terdaftar 334 AMT aktif di database |
+> [!WARNING]
+> Demi standar keamanan HSSE dan perlindungan data, **DILARANG** mencantumkan kata sandi operasional di dokumentasi publik.
+> Untuk inisialisasi akun Super Admin pertama kali, gunakan script `npm run bootstrap:superadmin` di backend. Kredensial operasional pada lingkungan produksi wajib dirotasi secara berkala oleh pemilik sistem.
+
+| Role | Username | Keterangan |
+| :--- | :--- | :--- |
+| **Super Admin** | Ditentukan via script bootstrap | Akses penuh sistem, kelola role Super Admin/Admin, dan pencabutan sesi |
+| **Admin** | Akun administrator terdaftar | Pengelolaan armada mobil tangki, laporan, & master data |
+| **Pengawas** | Akun pengawas terdaftar | Verifikasi & approval temuan inspeksi operasional lapangan |
+| **AMT** | Sesuai NIP Pekerja terdaftar | Awak Mobil Tangki (AMT 1 & AMT 2) pelapor inspeksi serah terima |
 
 ---
 

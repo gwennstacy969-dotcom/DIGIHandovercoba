@@ -22,10 +22,10 @@ const submitHandoverSchema = Joi.object({
   }),
   type: Joi.string().valid('mulai', 'akhiri').default('mulai'),
   status: Joi.string().valid('Aman', 'Siap Operasi (Normal)', 'Ada Masalah', 'FORCE_RELEASED', 'STARTED', 'FINISHED').allow(null, ''),
-  locationLat: Joi.number().required().messages({
+  locationLat: Joi.number().min(-90).max(90).required().messages({
     'any.required': 'Lokasi (Latitude) wajib disertakan'
   }),
-  locationLng: Joi.number().required().messages({
+  locationLng: Joi.number().min(-180).max(180).required().messages({
     'any.required': 'Lokasi (Longitude) wajib disertakan'
   }),
   locationAddress: Joi.string().allow(null, ''),

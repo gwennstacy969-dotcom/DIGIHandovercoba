@@ -141,19 +141,18 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
     let locationProvince = value.locationProvince || null;
     let locationCountry = value.locationCountry || null;
 
-    if (!locationAddress && locationLat && locationLng) {
-      try {
-        const geo = await geocodingService.reverseGeocode(parseFloat(locationLat), parseFloat(locationLng));
-        if (geo) {
-          locationAddress = geo.address || null;
-          locationVillage = geo.village || null;
-          locationDistrict = geo.district || null;
-          locationCity = geo.city || null;
-          locationProvince = geo.province || null;
-          locationCountry = geo.country || null;
-        }
-      } catch (geoErr) {
-        // Reverse geocoding failure must never block handover submission
+    const hasCoords = locationLat !== undefined && locationLat !== null && locationLng !== undefined && locationLng !== null;
+
+    // Jika alamat belum disediakan oleh client, periksa cache instan terlebih dahulu
+    if (!locationAddress && hasCoords) {
+      const cached = geocodingService.getCachedAddress(locationLat, locationLng);
+      if (cached) {
+        locationAddress = cached.address || null;
+        locationVillage = cached.village || null;
+        locationDistrict = cached.district || null;
+        locationCity = cached.city || null;
+        locationProvince = cached.province || null;
+        locationCountry = cached.country || null;
       }
     }
 
@@ -450,6 +449,27 @@ router.post('/', authenticateToken, upload.any(), optimizeImages, async (req, re
 
     // Invalidate semua cache handovers
     await CacheService.delPattern('handovers:*');
+
+    // Jika alamat belum ada di cache saat handover dibuat, jalankan geocode non-blocking di background
+    if (!locationAddress && hasCoords && handover && handover.id) {
+      geocodingService.reverseGeocode(parseFloat(locationLat), parseFloat(locationLng))
+        .then(async (geo) => {
+          if (geo && geo.address) {
+            await prisma.handover.update({
+              where: { id: handover.id },
+              data: {
+                locationAddress: geo.address,
+                locationVillage: geo.village || null,
+                locationDistrict: geo.district || null,
+                locationCity: geo.city || null,
+                locationProvince: geo.province || null,
+                locationCountry: geo.country || null,
+              }
+            }).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
 
     res.status(201).json({ success: true, handover });
   } catch (error) {
@@ -753,8 +773,16 @@ router.get('/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Data riwayat handover tidak ditemukan.' });
     }
 
-    // Backfill address for legacy data if missing
-    if (!handover.locationAddress && handover.locationLat && handover.locationLng) {
+    // Otorisasi objek WAJIB dilakukan SEBELUM efek samping/update apapun
+    // Worker hanya boleh melihat handover miliknya sendiri
+    if ((req.user.role === 'AMT' || req.user.role === 'USER') && handover.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Akses ditolak: Anda tidak memiliki akses ke data ini' });
+    }
+
+    // Backfill address for legacy data if missing (Hanya untuk request yang telah terverifikasi izinnya)
+    const hasLegacyCoords = handover.locationLat !== null && handover.locationLat !== undefined &&
+                            handover.locationLng !== null && handover.locationLng !== undefined;
+    if (!handover.locationAddress && hasLegacyCoords) {
       try {
         const geo = await geocodingService.reverseGeocode(handover.locationLat, handover.locationLng);
         if (geo && geo.address) {
@@ -779,11 +807,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
       } catch (geoErr) {
         // Non-blocking
       }
-    }
-
-    // Worker hanya boleh melihat handover miliknya sendiri
-    if ((req.user.role === 'AMT' || req.user.role === 'USER') && handover.userId !== req.user.id) {
-      return res.status(403).json({ error: 'Akses ditolak: Anda tidak memiliki akses ke data ini' });
     }
 
     res.json({ success: true, handover });

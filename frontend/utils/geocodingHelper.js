@@ -1,25 +1,70 @@
 import AsyncStorageRaw from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 
 const AsyncStorage = AsyncStorageRaw.default || AsyncStorageRaw;
 
-const getApiUrl = () => {
-  if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
+/**
+ * Resolves the active backend API URL across:
+ * 1. axios.defaults.baseURL (configured in config.js / loadSavedApiUrl)
+ * 2. Web browser window.location (local dev, LAN IP, or production reverse proxy)
+ * 3. EXPO_PUBLIC_API_URL environment variable
+ * 4. Production domain fallback (https://pertamina-handover.com)
+ */
+export const resolveApiUrl = () => {
+  if (axios.defaults?.baseURL) {
+    return axios.defaults.baseURL.replace(/\/+$/, '');
   }
-  return 'http://localhost:3000';
+  if (typeof window !== 'undefined' && window.location) {
+    const { protocol, hostname, port } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `${protocol}//localhost:3000`;
+    }
+    if (!port || port === '80' || port === '443') {
+      return `${protocol}//${hostname}`;
+    }
+    return `${protocol}//${hostname}:3000`;
+  }
+  if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '');
+  }
+  return 'https://pertamina-handover.com';
 };
 
 // In-memory cache for reverse geocoding
 const geoCache = new Map();
 
+/**
+ * Generates 4-decimal precision key for spatial cache clustering.
+ * Validates boundaries (-90..90, -180..180) and accepts coordinate 0.
+ */
 export function getCacheKey(lat, lng) {
+  if (lat === null || lat === undefined || lng === null || lng === undefined) {
+    return null;
+  }
   const numLat = parseFloat(lat);
   const numLng = parseFloat(lng);
-  if (isNaN(numLat) || isNaN(numLng)) return null;
+  if (isNaN(numLat) || isNaN(numLng)) {
+    return null;
+  }
+  if (numLat < -90 || numLat > 90 || numLng < -180 || numLng > 180) {
+    return null;
+  }
   return `${numLat.toFixed(4)},${numLng.toFixed(4)}`;
 }
 
-export function formatIndonesianAddress({ road, village, district, city, province, country }) {
+/**
+ * Clear in-memory cache (for test isolation)
+ */
+export function clearGeoCache() {
+  geoCache.clear();
+}
+
+/**
+ * Clean and normalize Indonesian administrative names.
+ * Avoids prepending "Desa " to suburbs or urban neighbourhoods,
+ * and avoids prepending "Kabupaten " to a Kota.
+ */
+export function formatIndonesianAddress({ road, village, villageType, district, city, cityType, province, country }) {
   const parts = [];
 
   if (road && road.trim()) {
@@ -28,7 +73,13 @@ export function formatIndonesianAddress({ road, village, district, city, provinc
 
   if (village && village.trim()) {
     const v = village.trim();
-    if (!v.toLowerCase().startsWith('desa') && !v.toLowerCase().startsWith('kelurahan') && !v.toLowerCase().startsWith('kel.')) {
+    const vLower = v.toLowerCase();
+    if (vLower.startsWith('desa') || vLower.startsWith('kelurahan') || vLower.startsWith('kel.') || vLower.startsWith('rw') || vLower.startsWith('rt')) {
+      parts.push(v);
+    } else if (villageType === 'suburb' || villageType === 'neighbourhood') {
+      // Suburb in urban city: keep name as is without forcing "Desa"
+      parts.push(v);
+    } else if (villageType === 'village') {
       parts.push(`Desa ${v}`);
     } else {
       parts.push(v);
@@ -37,16 +88,22 @@ export function formatIndonesianAddress({ road, village, district, city, provinc
 
   if (district && district.trim()) {
     const d = district.trim();
-    if (!d.toLowerCase().startsWith('kecamatan') && !d.toLowerCase().startsWith('kec.')) {
-      parts.push(`Kecamatan ${d}`);
-    } else {
+    const dLower = d.toLowerCase();
+    if (dLower.startsWith('kecamatan') || dLower.startsWith('kec.')) {
       parts.push(d);
+    } else {
+      parts.push(`Kecamatan ${d}`);
     }
   }
 
   if (city && city.trim()) {
     const c = city.trim();
-    if (!c.toLowerCase().startsWith('kabupaten') && !c.toLowerCase().startsWith('kab.') && !c.toLowerCase().startsWith('kota')) {
+    const cLower = c.toLowerCase();
+    if (cLower.startsWith('kabupaten') || cLower.startsWith('kab.') || cLower.startsWith('kota')) {
+      parts.push(c);
+    } else if (cityType === 'city') {
+      parts.push(`Kota ${c}`);
+    } else if (cityType === 'county') {
       parts.push(`Kabupaten ${c}`);
     } else {
       parts.push(c);
@@ -83,10 +140,22 @@ async function getExpoLocation() {
   return cachedLocationModule;
 }
 
-export async function reverseGeocodeCoords(latitude, longitude, authToken = null) {
+export async function reverseGeocodeCoords(latitude, longitude, authToken = null, customBaseUrl = null) {
+  if (latitude === null || latitude === undefined || longitude === null || longitude === undefined) {
+    return {
+      isSuccess: false,
+      address: 'Alamat tidak tersedia',
+      village: null,
+      district: null,
+      city: null,
+      province: null,
+      country: null
+    };
+  }
+
   const numLat = parseFloat(latitude);
   const numLng = parseFloat(longitude);
-  if (isNaN(numLat) || isNaN(numLng)) {
+  if (isNaN(numLat) || isNaN(numLng) || numLat < -90 || numLat > 90 || numLng < -180 || numLng > 180) {
     return {
       isSuccess: false,
       address: 'Alamat tidak tersedia',
@@ -116,12 +185,14 @@ export async function reverseGeocodeCoords(latitude, longitude, authToken = null
         const r = results[0];
         const road = r.street || r.name || '';
         const village = r.district || r.subregion || '';
+        const villageType = r.subregion ? 'suburb' : null;
         const district = r.city || r.district || '';
         const city = r.subregion || r.city || '';
+        const cityType = r.city && r.city.toLowerCase().includes('kota') ? 'city' : null;
         const province = r.region || '';
         const country = r.country || 'Indonesia';
 
-        let formatted = formatIndonesianAddress({ road, village, district, city, province, country });
+        let formatted = formatIndonesianAddress({ road, village, villageType, district, city, cityType, province, country });
         if (!formatted && r.formattedAddress) {
           formatted = r.formattedAddress;
         }
@@ -162,7 +233,7 @@ export async function reverseGeocodeCoords(latitude, longitude, authToken = null
       timeoutId = setTimeout(() => controller.abort(), 4500);
     }
 
-    const baseUrl = getApiUrl();
+    const baseUrl = (customBaseUrl || resolveApiUrl()).replace(/\/+$/, '');
     const response = await fetch(`${baseUrl}/api/location/reverse-geocode?lat=${numLat}&lng=${numLng}`, {
       headers,
       signal: controller ? controller.signal : undefined
@@ -206,3 +277,4 @@ export async function reverseGeocodeCoords(latitude, longitude, authToken = null
   };
   return fallbackObj;
 }
+

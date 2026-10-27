@@ -13,17 +13,29 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 
 /**
  * Format rounded cache key (e.g., "-7.6188,109.1442")
+ * Validates boundaries (-90..90, -180..180) and supports coordinate 0.
  */
 function getCacheKey(lat, lng) {
+  if (lat === null || lat === undefined || lng === null || lng === undefined) {
+    return null;
+  }
   const numLat = parseFloat(lat);
   const numLng = parseFloat(lng);
+  if (isNaN(numLat) || isNaN(numLng)) {
+    return null;
+  }
+  if (numLat < -90 || numLat > 90 || numLng < -180 || numLng > 180) {
+    return null;
+  }
   return `${numLat.toFixed(4)},${numLng.toFixed(4)}`;
 }
 
 /**
  * Clean and normalize Indonesian administrative names
+ * Prevents incorrectly prepending "Desa " to suburbs or urban neighbourhoods,
+ * and prevents prepending "Kabupaten " to a Kota.
  */
-function formatIndonesianAddress({ road, village, district, city, province, country }) {
+function formatIndonesianAddress({ road, village, villageType, district, city, cityType, province, country }) {
   const parts = [];
 
   if (road && road.trim()) {
@@ -32,7 +44,13 @@ function formatIndonesianAddress({ road, village, district, city, province, coun
 
   if (village && village.trim()) {
     const v = village.trim();
-    if (!v.toLowerCase().startsWith('desa') && !v.toLowerCase().startsWith('kelurahan') && !v.toLowerCase().startsWith('kel.')) {
+    const vLower = v.toLowerCase();
+    if (vLower.startsWith('desa') || vLower.startsWith('kelurahan') || vLower.startsWith('kel.') || vLower.startsWith('rw') || vLower.startsWith('rt')) {
+      parts.push(v);
+    } else if (villageType === 'suburb' || villageType === 'neighbourhood') {
+      // Suburb/neighbourhood in urban area: keep as is, do NOT label as Desa
+      parts.push(v);
+    } else if (villageType === 'village') {
       parts.push(`Desa ${v}`);
     } else {
       parts.push(v);
@@ -41,16 +59,22 @@ function formatIndonesianAddress({ road, village, district, city, province, coun
 
   if (district && district.trim()) {
     const d = district.trim();
-    if (!d.toLowerCase().startsWith('kecamatan') && !d.toLowerCase().startsWith('kec.')) {
-      parts.push(`Kecamatan ${d}`);
-    } else {
+    const dLower = d.toLowerCase();
+    if (dLower.startsWith('kecamatan') || dLower.startsWith('kec.')) {
       parts.push(d);
+    } else {
+      parts.push(`Kecamatan ${d}`);
     }
   }
 
   if (city && city.trim()) {
     const c = city.trim();
-    if (!c.toLowerCase().startsWith('kabupaten') && !c.toLowerCase().startsWith('kab.') && !c.toLowerCase().startsWith('kota')) {
+    const cLower = c.toLowerCase();
+    if (cLower.startsWith('kabupaten') || cLower.startsWith('kab.') || cLower.startsWith('kota')) {
+      parts.push(c);
+    } else if (cityType === 'city') {
+      parts.push(`Kota ${c}`);
+    } else if (cityType === 'county') {
       parts.push(`Kabupaten ${c}`);
     } else {
       parts.push(c);
@@ -87,22 +111,34 @@ async function geocodeGoogle(lat, lng, apiKey) {
 
   let road = '';
   let village = '';
+  let villageType = null;
   let district = '';
   let city = '';
+  let cityType = null;
   let province = '';
   let country = 'Indonesia';
 
   for (const c of components) {
     const types = c.types || [];
     if (types.includes('route')) road = c.long_name;
-    if (types.includes('administrative_area_level_4') || types.includes('sublocality_level_1')) village = c.long_name;
+    if (types.includes('sublocality_level_1')) {
+      village = c.long_name;
+      villageType = 'suburb';
+    } else if (types.includes('administrative_area_level_4')) {
+      village = c.long_name;
+      villageType = 'village';
+    }
     if (types.includes('administrative_area_level_3') || types.includes('locality')) district = c.long_name;
-    if (types.includes('administrative_area_level_2')) city = c.long_name;
+    if (types.includes('administrative_area_level_2')) {
+      city = c.long_name;
+      if (c.long_name.toLowerCase().includes('kota')) cityType = 'city';
+      else if (c.long_name.toLowerCase().includes('kabupaten')) cityType = 'county';
+    }
     if (types.includes('administrative_area_level_1')) province = c.long_name;
     if (types.includes('country')) country = c.long_name;
   }
 
-  const formatted = formatIndonesianAddress({ road, village, district, city, province, country }) || result.formatted_address;
+  const formatted = formatIndonesianAddress({ road, village, villageType, district, city, cityType, province, country }) || result.formatted_address;
 
   return {
     latitude: parseFloat(lat),
@@ -142,12 +178,14 @@ async function geocodeNominatim(lat, lng) {
   const a = data.address;
   const road = a.road || a.pedestrian || a.street || '';
   const village = a.village || a.suburb || a.hamlet || a.neighbourhood || a.quarter || '';
+  const villageType = a.village ? 'village' : (a.suburb || a.neighbourhood ? 'suburb' : null);
   const district = a.municipality || a.town || a.city_district || a.district || a.subdistrict || '';
-  const city = a.county || a.city || a.regency || '';
+  const city = a.city || a.county || a.regency || '';
+  const cityType = a.city ? 'city' : (a.county || a.regency ? 'county' : null);
   const province = a.state || a.province || '';
   const country = a.country || 'Indonesia';
 
-  const formatted = formatIndonesianAddress({ road, village, district, city, province, country }) || data.display_name;
+  const formatted = formatIndonesianAddress({ road, village, villageType, district, city, cityType, province, country }) || data.display_name;
 
   return {
     latitude: parseFloat(lat),
@@ -163,6 +201,27 @@ async function geocodeNominatim(lat, lng) {
 }
 
 /**
+ * Public method: getCachedAddress
+ * Synchronously returns cached address object if present and fresh, or null.
+ */
+function getCachedAddress(latitude, longitude) {
+  const cacheKey = getCacheKey(latitude, longitude);
+  if (!cacheKey) return null;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+  return null;
+}
+
+/**
+ * Public method: clearCache (for isolated testing)
+ */
+function clearCache() {
+  cache.clear();
+}
+
+/**
  * Public method: reverseGeocode
  * Returns address object or null if failed.
  */
@@ -174,6 +233,11 @@ async function reverseGeocode(latitude, longitude) {
   const numLat = parseFloat(latitude);
   const numLng = parseFloat(longitude);
   if (isNaN(numLat) || isNaN(numLng)) {
+    return null;
+  }
+
+  // Geographic boundaries validation
+  if (numLat < -90 || numLat > 90 || numLng < -180 || numLng > 180) {
     return null;
   }
 
@@ -217,7 +281,9 @@ async function reverseGeocode(latitude, longitude) {
 
 module.exports = {
   reverseGeocode,
+  getCachedAddress,
   formatIndonesianAddress,
-  getCacheKey
+  getCacheKey,
+  clearCache
 };
 
