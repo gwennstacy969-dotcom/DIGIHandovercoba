@@ -1,8 +1,7 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/prisma');
 const { validateSession } = require('../services/sessionService');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'rahasia_negara_pertamina_123';
+const TokenManager = require('../utils/TokenManager');
 
 /**
  * Middleware Autentikasi:
@@ -11,16 +10,37 @@ const JWT_SECRET = process.env.JWT_SECRET || 'rahasia_negara_pertamina_123';
  *    - Memeriksa apakah sessionId pada token cocok dengan activeSessionId di database.
  *    - Memastikan sesi belum dicabut atau kedaluwarsa.
  * 3. Membaca data role terkini langsung dari database untuk mencegah manipulasi peran di sisi klien.
+ * 4. Keamanan Query Token: Token via URL query string hanya diizinkan untuk endpoint unduhan/preview berkas
+ *    (seperti /uploads dan /api/reports/excel|pdf). Endpoint API reguler wajib menggunakan Authorization Header.
  */
 const authMiddleware = (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
+  let token = (authHeader && authHeader.split(' ')[1]) || null;
+
+  // Izinkan req.query.token hanya untuk endpoint file / preview / download report
+  if (!token && req.query && req.query.token) {
+    const isFileOrReport = req.baseUrl === '/uploads' ||
+      (req.path && (req.path.includes('/reports/excel') || req.path.includes('/reports/pdf') || req.path.includes('/uploads/'))) ||
+      (req.originalUrl && (req.originalUrl.includes('/reports/excel') || req.originalUrl.includes('/reports/pdf') || req.originalUrl.includes('/uploads/')));
+
+    if (isFileOrReport) {
+      token = req.query.token;
+    }
+  }
 
   if (!token) {
     return res.status(401).json({ error: 'Akses ditolak: Token tidak ditemukan' });
   }
 
-  jwt.verify(token, JWT_SECRET, async (err, decoded) => {
+  let jwtSecret;
+  try {
+    jwtSecret = TokenManager.getJwtSecret();
+  } catch (secErr) {
+    console.error('JWT Secret configuration error:', secErr.message);
+    return res.status(500).json({ error: 'Terjadi kesalahan konfigurasi keamanan server' });
+  }
+
+  jwt.verify(token, jwtSecret, async (err, decoded) => {
     if (err) {
       return res.status(401).json({
         error: 'Akses ditolak: Token tidak valid atau kadaluarsa',

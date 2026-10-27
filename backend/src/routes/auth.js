@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
+const rateLimit = require('express-rate-limit');
 const prisma = require('../config/prisma');
 const { loginSchema } = require('../validators/schemas');
 const { authenticateToken } = require('../middleware/auth');
@@ -14,16 +15,54 @@ const {
 } = require('../services/sessionService');
 const TokenManager = require('../utils/TokenManager');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'rahasia_negara_pertamina_123';
-const REFRESH_SECRET = process.env.REFRESH_SECRET || 'refresh_rahasia_negara_pertamina_123';
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 5 * 60 * 1000; // 5 menit lockout
 
-// 1. Auth Login (Single Active Session + Rate Limit attempt tracking)
-router.post('/login', async (req, res, next) => {
+// IP-based Rate Limiter khusus endpoint login untuk mencegah brute force distributed spray
+const loginIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 200 : 30, // 30 percobaan per 15 menit per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Terlalu banyak permintaan login dari alamat IP ini. Silakan tunggu 15 menit.'
+  }
+});
+
+// 1. Auth Login (Single Active Session + Account-Level Brute Force Lockout)
+router.post('/login', loginIpLimiter, async (req, res, next) => {
   try {
     const { error, value } = loginSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.details[0].message });
     const { username, password } = value;
     const normalizedUsername = (username || '').trim().toLowerCase();
+
+    // 1. Periksa apakah akun sedang dalam masa lockout sementara
+    try {
+      const existingAttempt = await prisma.loginAttempt.findUnique({
+        where: { normalizedUsername }
+      });
+
+      if (existingAttempt && existingAttempt.failedAttempts >= MAX_FAILED_ATTEMPTS) {
+        const elapsed = Date.now() - new Date(existingAttempt.lastAttemptAt).getTime();
+        if (elapsed < LOCKOUT_DURATION_MS) {
+          const remainingSeconds = Math.ceil((LOCKOUT_DURATION_MS - elapsed) / 1000);
+          return res.status(429).json({
+            error: `Akun ini ditangguhkan sementara karena terlalu banyak percobaan login yang gagal. Silakan coba lagi dalam ${remainingSeconds} detik atau hubungi Super Admin.`,
+            isLockedOut: true,
+            remainingSeconds
+          });
+        } else {
+          // Lockout 5 menit telah selesai, reset hitungan kegagalan
+          await prisma.loginAttempt.update({
+            where: { normalizedUsername },
+            data: { failedAttempts: 0, lastAttemptAt: new Date() }
+          });
+        }
+      }
+    } catch (lockCheckErr) {
+      console.warn('Non-critical: error checking loginAttempt lockout:', lockCheckErr.message);
+    }
 
     const user = await prisma.user.findFirst({
       where: {
@@ -55,9 +94,34 @@ router.post('/login', async (req, res, next) => {
         console.error('Error tracking login attempt:', attErr.message);
       }
 
+      // Jika mencapai batas maksimal percobaan, berlakukan lockout 5 menit
+      if (failedAttempts >= MAX_FAILED_ATTEMPTS) {
+        try {
+          await prisma.auditLog.create({
+            data: {
+              userId: user ? user.id : 'SYSTEM',
+              action: 'ACCOUNT_LOCKOUT_TRIGGERED',
+              actionType: 'SECURITY',
+              details: JSON.stringify({
+                username: normalizedUsername,
+                failedAttempts,
+                lockoutMinutes: 5,
+                timestamp: new Date().toISOString()
+              })
+            }
+          });
+        } catch (_) {}
+
+        return res.status(429).json({
+          error: 'Akun ditangguhkan sementara selama 5 menit karena 5 kali percobaan login gagal berturut-turut.',
+          isLockedOut: true,
+          remainingSeconds: Math.ceil(LOCKOUT_DURATION_MS / 1000)
+        });
+      }
+
       const showForgotPasswordPrompt = failedAttempts >= 3;
 
-      // Catat ke AuditLog jika user ditemukan
+      // Catat ke AuditLog kegagalan login tanpa mencatat password
       if (user) {
         try {
           await prisma.auditLog.create({
@@ -67,7 +131,7 @@ router.post('/login', async (req, res, next) => {
               actionType: 'AUTH',
               details: JSON.stringify({
                 username: user.username,
-                reason: 'Password salah',
+                reason: 'Kredensial tidak valid',
                 failedAttempts
               })
             }
@@ -82,7 +146,7 @@ router.post('/login', async (req, res, next) => {
       });
     }
 
-    // Reset penghitung kegagalan login untuk username ini
+    // Reset penghitung kegagalan login untuk username ini setelah kredensial benar
     try {
       await prisma.loginAttempt.deleteMany({
         where: { normalizedUsername }
@@ -174,7 +238,15 @@ router.post('/refresh', async (req, res, next) => {
   if (!refreshToken) return res.status(401).json({ error: 'Refresh token diperlukan' });
 
   try {
-    jwt.verify(refreshToken, REFRESH_SECRET, async (err, payload) => {
+    let refreshSecret;
+    try {
+      refreshSecret = TokenManager.getRefreshSecret();
+    } catch (secErr) {
+      console.error('Refresh Secret configuration error:', secErr.message);
+      return res.status(500).json({ error: 'Terjadi kesalahan konfigurasi keamanan server' });
+    }
+
+    jwt.verify(refreshToken, refreshSecret, async (err, payload) => {
       if (err) return res.status(403).json({ error: 'Refresh token tidak valid atau kadaluarsa' });
 
       const user = await prisma.user.findFirst({
@@ -205,32 +277,17 @@ router.post('/refresh', async (req, res, next) => {
   }
 });
 
-// 3. Auth Logout (Menghapus Sesi Aktif di Database Secara Bersih)
+// 3. Auth Logout (Menghapus Sesi Aktif di Database Secara Bersih & Atomik)
 router.post('/logout', authenticateToken, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const currentSessionId = req.user.sessionId;
 
-    // Ambil data user untuk memastikan kita hanya menghapus jika sessionId cocok
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { activeSessionId: true }
-    });
+    // Cabut sesi spesifik sessionId ini secara atomik.
+    // Jika akun telah login di sesi baru S2, pencabutan S1 TIDAK akan menghapus S2.
+    await terminateSession(userId, currentSessionId, prisma);
 
-    if (user && (!user.activeSessionId || user.activeSessionId === currentSessionId)) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          activeSessionId: null,
-          refreshToken: null,
-          sessionStartedAt: null,
-          sessionLastActivityAt: null,
-          sessionExpiresAt: null
-        }
-      });
-    }
-
-    // Catat ke AuditLog
+    // Catat ke AuditLog tanpa password/token
     try {
       await prisma.auditLog.create({
         data: {
@@ -239,7 +296,8 @@ router.post('/logout', authenticateToken, async (req, res, next) => {
           actionType: 'AUTH',
           details: JSON.stringify({
             username: req.user.username,
-            sessionId: currentSessionId
+            sessionId: currentSessionId,
+            loggedOutAt: new Date().toISOString()
           })
         }
       });

@@ -31,54 +31,42 @@ describe('Vehicle Operational Status & State Machine Regression Tests', () => {
   const allNopols = [nopol1, nopol2, nopol3, nopol4, nopol5, nopol6, nopol7, nopol8];
 
   beforeAll(async () => {
-    // 1. Get or create active test users (deletedAt: null)
-    testAmt = await prisma.user.findFirst({ where: { role: 'AMT', deletedAt: null } });
-    if (!testAmt) {
-      testAmt = await prisma.user.create({
-        data: {
-          username: `amt_${prefix}`,
-          password: 'password_hash',
-          name: 'Budi AMT Test',
-          role: 'AMT'
-        }
-      });
-    }
+    // 1. Buat user test unik dan terisolasi untuk suite ini
+    testAmt = await prisma.user.create({
+      data: {
+        username: `vsr_amt_${prefix}`,
+        password: 'password_hash',
+        name: 'Budi AMT Test',
+        role: 'AMT'
+      }
+    });
 
-    testPengawas = await prisma.user.findFirst({ where: { role: 'PENGAWAS', deletedAt: null } });
-    if (!testPengawas) {
-      testPengawas = await prisma.user.create({
-        data: {
-          username: `pengawas_${prefix}`,
-          password: 'password_hash',
-          name: 'Agus Pengawas Test',
-          role: 'PENGAWAS'
-        }
-      });
-    }
+    testPengawas = await prisma.user.create({
+      data: {
+        username: `vsr_pengawas_${prefix}`,
+        password: 'password_hash',
+        name: 'Agus Pengawas Test',
+        role: 'PENGAWAS'
+      }
+    });
 
-    testAdmin = await prisma.user.findFirst({ where: { role: 'ADMIN', deletedAt: null } });
-    if (!testAdmin) {
-      testAdmin = await prisma.user.create({
-        data: {
-          username: `admin_${prefix}`,
-          password: 'password_hash',
-          name: 'Admin Test',
-          role: 'ADMIN'
-        }
-      });
-    }
+    testAdmin = await prisma.user.create({
+      data: {
+        username: `vsr_admin_${prefix}`,
+        password: 'password_hash',
+        name: 'Admin Test',
+        role: 'ADMIN'
+      }
+    });
 
-    testSuperAdmin = await prisma.user.findFirst({ where: { role: 'SUPER_ADMIN', deletedAt: null } });
-    if (!testSuperAdmin) {
-      testSuperAdmin = await prisma.user.create({
-        data: {
-          username: `superadmin_${prefix}`,
-          password: 'password_hash',
-          name: 'Super Admin Test',
-          role: 'SUPER_ADMIN'
-        }
-      });
-    }
+    testSuperAdmin = await prisma.user.create({
+      data: {
+        username: `vsr_superadmin_${prefix}`,
+        password: 'password_hash',
+        name: 'Super Admin Test',
+        role: 'SUPER_ADMIN'
+      }
+    });
 
     amtToken = TokenManager.generateAccessToken(testAmt);
     pengawasToken = TokenManager.generateAccessToken(testPengawas);
@@ -591,5 +579,20 @@ describe('Vehicle Operational Status & State Machine Regression Tests', () => {
     // Kendaraan kembali siap
     const finalVeh = await prisma.vehicle.findUnique({ where: { noPolisi: nopol8 } });
     expect(finalVeh.status).toBe('READY_TO_START');
+  });
+
+  afterAll(async () => {
+    try {
+      if (testAmt || testPengawas || testAdmin || testSuperAdmin) {
+        await prisma.user.deleteMany({
+          where: {
+            id: {
+              in: [testAmt?.id, testPengawas?.id, testAdmin?.id, testSuperAdmin?.id].filter(Boolean)
+            }
+          }
+        });
+      }
+    } catch (_) {}
+    await prisma.$disconnect();
   });
 });

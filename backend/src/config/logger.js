@@ -13,7 +13,7 @@ const transports = [
     format: winston.format.combine(
       winston.format.colorize(),
       winston.format.printf(
-        ({ level, message, timestamp, stack }) => `${timestamp} ${level}: ${message} ${stack ? '\\n' + stack : ''}`
+        ({ level, message, timestamp, stack }) => `${timestamp} ${level}: ${message} ${stack ? '\n' + stack : ''}`
       )
     )
   }),
@@ -36,11 +36,17 @@ const logger = winston.createLogger({
   transports
 });
 
-// Create a stream object for Morgan integration
+// Create a stream object for Morgan integration with sensitive data redaction
 logger.stream = {
   write: function (message) {
-    // Morgan adds a newline at the end of the message, remove it
-    logger.info(message.trim());
+    if (!message) return;
+    // Redact tokens, secrets, and passwords from logged URL strings or messages
+    const sanitized = String(message)
+      .replace(/([?&](?:token|password|secret|refreshToken)=)[^&\s"]+/gi, '$1[REDACTED]')
+      .replace(/("password"\s*:\s*")[^"]+"/gi, '$1[REDACTED]"')
+      .replace(/("token"\s*:\s*")[^"]+"/gi, '$1[REDACTED]"')
+      .replace(/("refreshToken"\s*:\s*")[^"]+"/gi, '$1[REDACTED]"');
+    logger.info(sanitized.trim());
   },
 };
 

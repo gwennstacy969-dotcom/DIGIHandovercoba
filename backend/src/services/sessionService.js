@@ -57,7 +57,8 @@ const isSessionLive = (user, now = Date.now()) => {
 
 /**
  * Membuat sesi login baru secara atomik (mencegah race condition dua login simultan).
- * Jika akun sudah memiliki sesi aktif yang masih valid, login kedua DITOLAK dengan status 409 Conflict.
+ * Menggunakan Row Lock (SELECT ... FOR UPDATE) dan conditional write agar tepat satu login berhasil
+ * jika dua request datang bersamaan pada akun yang sama.
  * 
  * @param {string} userId 
  * @param {object} [client=defaultPrisma] 
@@ -70,20 +71,33 @@ const createSessionAtomic = async (userId, client = defaultPrisma) => {
   const sessionExpiresAt = new Date(nowMs + ABSOLUTE_SESSION_TIMEOUT);
 
   return await client.$transaction(async (tx) => {
-    // Ambil data user terkini
-    const user = await tx.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        deletedAt: true,
-        activeSessionId: true,
-        sessionStartedAt: true,
-        sessionLastActivityAt: true,
-        sessionExpiresAt: true
+    let user;
+
+    // Coba gunakan SELECT ... FOR UPDATE pada MySQL untuk row-level concurrency lock
+    try {
+      const lockedRows = await tx.$queryRawUnsafe(
+        'SELECT id, username, role, deletedAt, activeSessionId, sessionStartedAt, sessionLastActivityAt, sessionExpiresAt FROM `user` WHERE id = ? FOR UPDATE',
+        userId
+      );
+      if (Array.isArray(lockedRows) && lockedRows.length > 0) {
+        user = lockedRows[0];
       }
-    });
+    } catch (_) {
+      // Fallback untuk driver/in-memory test yang tidak mendukung FOR UPDATE
+      user = await tx.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          username: true,
+          role: true,
+          deletedAt: true,
+          activeSessionId: true,
+          sessionStartedAt: true,
+          sessionLastActivityAt: true,
+          sessionExpiresAt: true
+        }
+      });
+    }
 
     if (!user || user.deletedAt !== null) {
       return { success: false, error: 'Akun tidak valid atau tidak aktif' };
@@ -99,10 +113,12 @@ const createSessionAtomic = async (userId, client = defaultPrisma) => {
       };
     }
 
-    // Jika sesi sebelumnya sudah tidak aktif (logout, kedaluwarsa idle/absolut, atau belum pernah login),
-    // simpan sesi baru secara atomik
-    const updated = await tx.user.update({
-      where: { id: userId },
+    // Conditional update: hanya update jika activeSessionId masih sesuai dengan snapshot saat dibaca
+    const updateResult = await tx.user.updateMany({
+      where: {
+        id: userId,
+        activeSessionId: user.activeSessionId
+      },
       data: {
         activeSessionId: newSessionId,
         sessionStartedAt: now,
@@ -111,14 +127,58 @@ const createSessionAtomic = async (userId, client = defaultPrisma) => {
       }
     });
 
+    if (updateResult.count === 0) {
+      // Kondisi di mana transaksi simultan lain telah mengubah sesi terlebih dahulu
+      return {
+        success: false,
+        conflict: true,
+        error: 'Akun ini sedang digunakan pada perangkat lain. Silakan logout dari perangkat sebelumnya atau hubungi Super Admin jika perangkat tersebut tidak dapat diakses.'
+      };
+    }
+
+    const updatedUser = await tx.user.findUnique({
+      where: { id: userId }
+    });
+
     return {
       success: true,
       sessionId: newSessionId,
       sessionStartedAt: now,
       sessionExpiresAt: sessionExpiresAt,
-      user: updated
+      user: updatedUser
     };
   });
+};
+
+/**
+ * Menutup/mencabut sesi secara bersih di database.
+ * Jika expectedSessionId disertakan, hanya menghapus jika activeSessionId saat ini cocok
+ * dengan expectedSessionId (mencegah race condition penghapusan sesi baru oleh request lama).
+ * 
+ * @param {string} userId 
+ * @param {string|null} [expectedSessionId=null]
+ * @param {object} [client=defaultPrisma] 
+ */
+const terminateSession = async (userId, expectedSessionId = null, client = defaultPrisma) => {
+  try {
+    const where = { id: userId };
+    if (expectedSessionId) {
+      where.activeSessionId = expectedSessionId;
+    }
+
+    await client.user.updateMany({
+      where,
+      data: {
+        activeSessionId: null,
+        refreshToken: null,
+        sessionStartedAt: null,
+        sessionLastActivityAt: null,
+        sessionExpiresAt: null
+      }
+    });
+  } catch (e) {
+    // Ignore error if user already deleted
+  }
 };
 
 /**
@@ -128,7 +188,7 @@ const createSessionAtomic = async (userId, client = defaultPrisma) => {
  * @param {string} userId 
  * @param {string} sessionId 
  * @param {object} [client=defaultPrisma]
- * @returns {Promise<{ valid: boolean, reason?: string, user?: object }>}
+ * @returns {Promise<{ valid: boolean, reason?: string, message?: string, user?: object }>}
  */
 const validateSession = async (userId, sessionId, client = defaultPrisma) => {
   if (!userId) {
@@ -168,10 +228,10 @@ const validateSession = async (userId, sessionId, client = defaultPrisma) => {
 
   const now = Date.now();
 
-  // Verifikasi absolute timeout
+  // Verifikasi absolute timeout (maksimal 8 jam sejak sesi dimulai)
   if (user.sessionExpiresAt && now >= new Date(user.sessionExpiresAt).getTime()) {
-    // Bersihkan sesi yang kedaluwarsa secara pasif
-    await terminateSession(userId, client);
+    // Bersihkan sesi yang kedaluwarsa secara pasif dengan mengunci sessionId target
+    await terminateSession(userId, sessionId, client);
     return {
       valid: false,
       reason: 'ABSOLUTE_TIMEOUT',
@@ -179,15 +239,15 @@ const validateSession = async (userId, sessionId, client = defaultPrisma) => {
     };
   }
 
-  // Verifikasi idle timeout
+  // Verifikasi idle timeout berdasarkan role pengguna
   const idleTimeout = getIdleTimeoutForRole(user.role);
   const lastActivity = user.sessionLastActivityAt
     ? new Date(user.sessionLastActivityAt).getTime()
     : (user.sessionStartedAt ? new Date(user.sessionStartedAt).getTime() : 0);
 
   if (now - lastActivity > idleTimeout) {
-    // Bersihkan sesi yang idle
-    await terminateSession(userId, client);
+    // Bersihkan sesi yang idle dengan mengunci sessionId target
+    await terminateSession(userId, sessionId, client);
     return {
       valid: false,
       reason: 'IDLE_TIMEOUT',
@@ -205,10 +265,10 @@ const validateSession = async (userId, sessionId, client = defaultPrisma) => {
  * @param {string} userId 
  * @param {string} sessionId 
  * @param {object} [client=defaultPrisma] 
- * @returns {Promise<{ success: boolean, remainingIdleMs?: number, remainingAbsoluteMs?: number }>}
+ * @returns {Promise<{ success: boolean, remainingIdleMs?: number, remainingAbsoluteMs?: number, reason?: string, message?: string }>}
  */
 const touchSessionActivity = async (userId, sessionId, client = defaultPrisma) => {
-  if (!userId || !sessionId) return { success: false };
+  if (!userId || !sessionId) return { success: false, reason: 'MISSING_PARAMS' };
 
   const validation = await validateSession(userId, sessionId, client);
   if (!validation.valid || !validation.user) {
@@ -218,8 +278,8 @@ const touchSessionActivity = async (userId, sessionId, client = defaultPrisma) =
   const user = validation.user;
   const now = new Date();
 
-  await client.user.update({
-    where: { id: userId },
+  await client.user.updateMany({
+    where: { id: userId, activeSessionId: sessionId },
     data: { sessionLastActivityAt: now }
   });
 
@@ -241,7 +301,7 @@ const touchSessionActivity = async (userId, sessionId, client = defaultPrisma) =
  * @param {string} userId 
  * @param {string} sessionId 
  * @param {object} [client=defaultPrisma] 
- * @returns {Promise<{ valid: boolean, remainingIdleMs: number, remainingAbsoluteMs: number, idleTimeoutMs: number }>}
+ * @returns {Promise<{ valid: boolean, remainingIdleMs: number, remainingAbsoluteMs: number, idleTimeoutMs: number, reason?: string, message?: string }>}
  */
 const getSessionStatus = async (userId, sessionId, client = defaultPrisma) => {
   const validation = await validateSession(userId, sessionId, client);
@@ -271,27 +331,8 @@ const getSessionStatus = async (userId, sessionId, client = defaultPrisma) => {
 };
 
 /**
- * Menutup/mencabut sesi secara bersih di database.
- * 
- * @param {string} userId 
- * @param {object} [client=defaultPrisma] 
- */
-const terminateSession = async (userId, client = defaultPrisma) => {
-  try {
-    await client.user.update({
-      where: { id: userId },
-      data: {
-        activeSessionId: null,
-        refreshToken: null
-      }
-    });
-  } catch (e) {
-    // Ignore error if user already deleted
-  }
-};
-
-/**
  * Mencabut sesi aktif pengguna tertentu oleh Super Admin, dilengkapi pencatatan audit log.
+ * Sengaja mencabut seluruh sesi target tanpa memerlukan sessionId lama.
  * 
  * @param {string} targetUserId 
  * @param {string} revokedByUserId 
@@ -317,14 +358,8 @@ const revokeUserSessionByAdmin = async (targetUserId, revokedByUserId, reason, c
     select: { id: true, username: true, name: true, role: true }
   });
 
-  // Cabut sesi dan refresh token
-  await client.user.update({
-    where: { id: targetUserId },
-    data: {
-      activeSessionId: null,
-      refreshToken: null
-    }
-  });
+  // Cabut sesi dan refresh token secara langsung
+  await terminateSession(targetUserId, null, client);
 
   // Catat ke AuditLog
   try {

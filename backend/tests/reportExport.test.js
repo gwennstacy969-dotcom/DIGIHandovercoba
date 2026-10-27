@@ -1,5 +1,6 @@
 const request = require('supertest');
 const app = require('../index');
+const prisma = require('../src/config/prisma');
 const TokenManager = require('../src/utils/TokenManager');
 const ExcelJS = require('exceljs');
 
@@ -9,27 +10,106 @@ const binaryParser = (res, callback) => {
   res.on('end', () => callback(null, Buffer.concat(data)));
 };
 
-describe('Report Export API (Excel & PDF)', () => {
+describe('Report Export API (Excel & PDF) - Isolated Test Fixtures', () => {
   jest.setTimeout(30000);
-  const adminUser = { id: 'USR-0001', username: 'yoan', role: 'ADMIN', name: 'Yoann' };
-  const nonAdminUser = { id: 'USR-0010', username: 'haula', role: 'PENGAWAS', name: 'haula' };
 
-  const adminToken = TokenManager.generateAccessToken(adminUser);
-  const nonAdminToken = TokenManager.generateAccessToken(nonAdminUser);
+  const testSuffix = `RPT_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  let testAdmin;
+  let testSuperAdmin;
+  let testPengawas;
+  let testAmt;
 
-  describe('Authorization enforcement', () => {
-    it('should reject non-admin from exporting Excel with 403', async () => {
-      const res = await request(app)
-        .get('/api/reports/excel')
-        .set('Authorization', `Bearer ${nonAdminToken}`);
+  let adminToken;
+  let superAdminToken;
+  let pengawasToken;
+  let amtToken;
 
-      expect(res.status).toBe(403);
+  beforeAll(async () => {
+    // Buat fixture pengguna unik yang terdaftar secara sah di database tes
+    testAdmin = await prisma.user.create({
+      data: {
+        username: `adm_${testSuffix}`,
+        password: 'hashed_password_test',
+        name: `Admin Test ${testSuffix}`,
+        role: 'ADMIN',
+        jabatan: 'Admin Operasional'
+      }
     });
 
-    it('should reject non-admin from exporting PDF with 403', async () => {
+    testSuperAdmin = await prisma.user.create({
+      data: {
+        username: `sa_${testSuffix}`,
+        password: 'hashed_password_test',
+        name: `Super Admin Test ${testSuffix}`,
+        role: 'SUPER_ADMIN',
+        jabatan: 'Super Administrator'
+      }
+    });
+
+    testPengawas = await prisma.user.create({
+      data: {
+        username: `peng_${testSuffix}`,
+        password: 'hashed_password_test',
+        name: `Pengawas Test ${testSuffix}`,
+        role: 'PENGAWAS',
+        jabatan: 'Pengawas Lapangan'
+      }
+    });
+
+    testAmt = await prisma.user.create({
+      data: {
+        username: `amt_${testSuffix}`,
+        password: 'hashed_password_test',
+        name: `AMT Test ${testSuffix}`,
+        role: 'AMT',
+        jabatan: 'Driver AMT 1'
+      }
+    });
+
+    // Terbitkan token JWT otentik yang valid untuk masing-masing role
+    adminToken = TokenManager.generateAccessToken(testAdmin);
+    superAdminToken = TokenManager.generateAccessToken(testSuperAdmin);
+    pengawasToken = TokenManager.generateAccessToken(testPengawas);
+    amtToken = TokenManager.generateAccessToken(testAmt);
+  });
+
+  afterAll(async () => {
+    try {
+      // Bersihkan seluruh user fixture setelah pengujian selesai
+      await prisma.user.deleteMany({
+        where: {
+          id: {
+            in: [testAdmin.id, testSuperAdmin.id, testPengawas.id, testAmt.id]
+          }
+        }
+      });
+    } catch (_) {}
+    await prisma.$disconnect();
+  });
+
+  describe('Authorization enforcement (RBAC)', () => {
+    it('should reject PENGAWAS role from exporting Excel with 403', async () => {
+      const res = await request(app)
+        .get('/api/reports/excel')
+        .set('Authorization', `Bearer ${pengawasToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/tidak diizinkan/i);
+    });
+
+    it('should reject PENGAWAS role from exporting PDF with 403', async () => {
       const res = await request(app)
         .get('/api/reports/pdf')
-        .set('Authorization', `Bearer ${nonAdminToken}`);
+        .set('Authorization', `Bearer ${pengawasToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/tidak diizinkan/i);
+    });
+
+    it('should reject AMT role from exporting Excel with 403', async () => {
+      const res = await request(app)
+        .get('/api/reports/excel')
+        .set('Authorization', `Bearer ${amtToken}`);
 
       expect(res.status).toBe(403);
     });
@@ -40,7 +120,7 @@ describe('Report Export API (Excel & PDF)', () => {
     });
   });
 
-  describe('GET /api/reports/excel', () => {
+  describe('GET /api/reports/excel (ADMIN & SUPER_ADMIN)', () => {
     it('should return valid Excel file with required headers and sheets for ADMIN', async () => {
       const res = await request(app)
         .get('/api/reports/excel')
@@ -82,6 +162,17 @@ describe('Report Export API (Excel & PDF)', () => {
       expect(headerRow4).toContain('Jabatan');
     });
 
+    it('should allow SUPER_ADMIN to export Excel (inherited permission)', async () => {
+      const res = await request(app)
+        .get('/api/reports/excel')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .buffer(true)
+        .parse(binaryParser);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('spreadsheetml.sheet');
+    });
+
     it('should support search query filter for Excel export', async () => {
       const res = await request(app)
         .get('/api/reports/excel?search=AA8410OP')
@@ -94,7 +185,7 @@ describe('Report Export API (Excel & PDF)', () => {
     });
   });
 
-  describe('GET /api/reports/pdf', () => {
+  describe('GET /api/reports/pdf (ADMIN & SUPER_ADMIN)', () => {
     it('should return valid PDF file for ADMIN', async () => {
       const res = await request(app)
         .get('/api/reports/pdf')
@@ -106,6 +197,20 @@ describe('Report Export API (Excel & PDF)', () => {
       expect(res.headers['content-type']).toContain('application/pdf');
 
       // PDF starts with %PDF-
+      const pdfHeader = res.body.slice(0, 5).toString('utf-8');
+      expect(pdfHeader).toBe('%PDF-');
+    });
+
+    it('should allow SUPER_ADMIN to export PDF (inherited permission)', async () => {
+      const res = await request(app)
+        .get('/api/reports/pdf')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .buffer(true)
+        .parse(binaryParser);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('application/pdf');
+
       const pdfHeader = res.body.slice(0, 5).toString('utf-8');
       expect(pdfHeader).toBe('%PDF-');
     });
